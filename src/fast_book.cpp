@@ -236,48 +236,25 @@ void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const
   const OrderRef ref = itch::load_be64(p + 11);
   if (stage == 0) {
     index_.prefetch(ref);
-    if (type == 'U' && len >= 27) {
-      index_.prefetch(itch::load_be64(p + 19));
-    }
     if (add) {
       __builtin_prefetch(&books_[itch::load_be16(p + 1)]);
+    }
+    if (type == 'U' && len >= 27) {
+      index_.prefetch(itch::load_be64(p + 19));
     }
     return;
   }
   if (add) {
-    if (stage == 1) {
-      const Side_& v = books_[itch::load_be16(p + 1)].sides[p[19] == 'B' ? 0 : 1];
-      if (!v.empty()) {
-        __builtin_prefetch(&v.back());
-      }
-    } else {
-      const Side_& v = books_[itch::load_be16(p + 1)].sides[p[19] == 'B' ? 0 : 1];
-      if (!v.empty()) {
-        const Level& lv = levels_[v.back().level];
-        __builtin_prefetch(&lv);
-        if (lv.tail != kNil) {
-          __builtin_prefetch(&slots_[lv.tail]);  // a new order is linked after the tail
-        }
-      }
+    const Side_& v = books_[itch::load_be16(p + 1)].sides[p[19] == 'B' ? 0 : 1];
+    if (!v.empty()) {
+      __builtin_prefetch(&v.back());
+      __builtin_prefetch(&levels_[v.back().level]);
     }
     return;
   }
   const std::uint32_t s = index_.find(ref);  // stage 0 brought the entry into cache
-  if (s == kNil) {
-    return;
-  }
-  if (stage == 1) {
+  if (s != kNil) {
     __builtin_prefetch(&slots_[s]);
-    return;
-  }
-  // Stage 2: the slot is in cache; fetch what removing or reducing it touches.
-  const Slot& o = slots_[s];
-  __builtin_prefetch(&levels_[o.level]);
-  if (o.prev != kNil) {
-    __builtin_prefetch(&slots_[o.prev]);
-  }
-  if (o.next != kNil) {
-    __builtin_prefetch(&slots_[o.next]);
   }
 }
 

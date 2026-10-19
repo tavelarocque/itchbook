@@ -9,7 +9,6 @@
 // is moved to the front and the next read appends after it. Messages are
 // handed to the handler as views into this buffer and are never copied.
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -47,16 +46,15 @@ inline constexpr std::size_t kMaxFrameBytes = 2 + std::numeric_limits<std::uint1
 
 // Optional software prefetching. A handler that defines
 //   void prefetch(const std::uint8_t* payload, std::size_t len, int stage);
-// is shown each frame kPrefetchStages times before it is decoded, at the
-// distances in kPrefetchAhead (stage 0 farthest ahead). Each stage follows
-// what the previous one brought into cache: e.g. stage 0 an index entry
-// located from the message alone, stage 1 the order slot that entry names,
-// stage 2 the price level and queue neighbours that slot names. Prefetching
-// never changes behaviour, only how long loads take.
+// is shown each frame twice before it is decoded: at stage 0 when it is
+// kFarAhead frames ahead (start loading what can be located from the message
+// alone, e.g. a hash bucket) and at stage 1 when it is kNearAhead frames ahead
+// (follow what stage 0 brought into cache, e.g. the order slot the bucket
+// names). Prefetching never changes behaviour, only how long loads take.
 template <class H>
 concept Prefetching = requires(H& h, const std::uint8_t* p, std::size_t n) { h.prefetch(p, n, 0); };
-inline constexpr int kPrefetchStages = 3;
-inline constexpr std::array<int, kPrefetchStages> kPrefetchAhead = {12, 8, 4};
+inline constexpr int kFarAhead = 16;
+inline constexpr int kNearAhead = 8;
 
 template <class Handler>
 StreamStats parse_stream(io::ByteSource& src, Handler& h, const StreamLimits& limits = {},
@@ -68,10 +66,11 @@ StreamStats parse_stream(io::ByteSource& src, Handler& h, const StreamLimits& li
   std::size_t begin = 0;
   std::size_t end = 0;
 
-  // Prefetch cursors (used only by Prefetching handlers): byte offset of the
+  // Prefetch cursors (used only by Prefetching handlers): byte offsets of the
   // next frame each stage will look at. They run ahead of `begin` within the
   // bytes already in the buffer.
-  std::array<std::size_t, kPrefetchStages> cursor{};  // NOLINT(misc-const-correctness)
+  std::size_t far = 0;   // NOLINT(misc-const-correctness): written only by Prefetching handlers
+  std::size_t near = 0;  // NOLINT(misc-const-correctness)
   const auto scout = [&](std::size_t& cur, int stage) {
     if (end - cur >= 2) {
       const std::size_t len = load_be16(buf.data() + cur);
@@ -88,18 +87,18 @@ StreamStats parse_stream(io::ByteSource& src, Handler& h, const StreamLimits& li
 
   for (;;) {
     if constexpr (Prefetching<Handler>) {
-      for (int stage = 0; stage < kPrefetchStages; ++stage) {
-        cursor[static_cast<std::size_t>(stage)] = begin;
-        for (int i = 0; i < kPrefetchAhead[static_cast<std::size_t>(stage)]; ++i) {
-          scout(cursor[static_cast<std::size_t>(stage)], stage);
-        }
+      far = near = begin;
+      for (int i = 0; i < kFarAhead; ++i) {
+        scout(far, 0);
+      }
+      for (int i = 0; i < kNearAhead; ++i) {
+        scout(near, 1);
       }
     }
     while (end - begin >= 2) {
       if constexpr (Prefetching<Handler>) {
-        for (int stage = 0; stage < kPrefetchStages; ++stage) {
-          scout(cursor[static_cast<std::size_t>(stage)], stage);
-        }
+        scout(far, 0);
+        scout(near, 1);
       }
       const std::uint8_t* frame = buf.data() + begin;
       const std::size_t len = load_be16(frame);
