@@ -31,7 +31,9 @@ for day in "$@"; do
   out="$dest/$file"
 
   echo "== $file ($size bytes) -> $out"
-  curl -fL --retry 5 --retry-delay 10 -C - -o "$out" "$base/$file"
+  if [ ! -f "$out" ] || [ "$(fsize "$out")" != "$size" ]; then
+    curl -fL --retry 5 --retry-delay 10 -C - -o "$out" "$base/$file"
+  fi
 
   got="$(fsize "$out")"
   [ "$got" = "$size" ] || { echo "$file: size $got, expected $size (re-run to resume)" >&2; exit 1; }

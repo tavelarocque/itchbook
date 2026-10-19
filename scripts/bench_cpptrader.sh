@@ -57,8 +57,8 @@ if [ ! -f "$raw" ]; then
 fi
 
 echo "building itchbook (release preset)..."
-cmake --preset release -S "$repo" > /dev/null
-cmake --build --preset release --target itch-stats itch-bench > /dev/null
+# Presets are looked up in the current directory, so build from the repo root.
+(cd "$repo" && cmake --preset release > /dev/null && cmake --build --preset release --target itch-stats itch-bench > /dev/null)
 bin="$repo/build/release"
 max_ref="$("$bin/itch-stats" "$raw" 2>&1 >/dev/null | sed -n 's/.*max order reference \([0-9]*\).*/\1/p')"
 echo "max order reference in $day: $max_ref"
