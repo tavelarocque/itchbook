@@ -12,8 +12,8 @@ It is then used as ground truth for two microstructure studies:
 |---|---|---|
 | M0 | Build, CI, sanitizers, test/bench/fuzz tooling, data scripts | done |
 | M1 | ITCH 5.0 parser: zero-copy views of all 23 message types, bounded-memory gzip streaming | done: 423,285,709 messages on 01302020, identical to the independent reference and the published counts |
-| M2 | L3 book (`ReferenceBook`, `itch-book`) with zero-orphan, invariant and cross-implementation gates | in progress |
-| M3 | Performance against CppTrader on the same file and machine | |
+| M2 | L3 book (`ReferenceBook`, `itch-book`) | done: 0 orphans on 01302020, empty book at close, whole-market checksums identical to the independent Python book at 35 times of day |
+| M3 | Optimised engine, identical output, benchmarked against CppTrader on the same file and machine | next |
 | M4 | Research 1: queue-position ground truth | |
 | M5 | Research 2: forecasting audit | |
 
@@ -57,6 +57,8 @@ The parser is verified against things it can't fake:
 - **Published counts.** On 01302020, per-type counts are compared with a published third-party table.
 
 ```bash
+build/release/itch-book ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz      # L3 book: counters, checksums, top of book
+python3 tools/itchref/crosscheck_book.py --itch-book build/release/itch-book --file ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz
 build/release/itch-stats --fingerprint ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz
 python3 tools/itchref/crosscheck.py --itch-stats build/release/itch-stats \
     --file ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz --fingerprint --published 01302020
