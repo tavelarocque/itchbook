@@ -41,7 +41,10 @@ if [ ! -d "$ct/.git" ]; then
   git clone https://github.com/chronoxor/CppTrader.git "$ct"
 fi
 git -C "$ct" fetch -q origin && git -C "$ct" checkout -q "$ct_rev"
-command -v gil >/dev/null || pip3 install --user gil
+export PATH="$HOME/.local/bin:$PATH"
+# Ubuntu 24.04 marks the system Python as externally managed (PEP 668); gil is a
+# small pure-Python tool, so a user-level install is safe.
+command -v gil >/dev/null || python3 -m pip install --user --break-system-packages gil
 (cd "$ct" && gil update > /dev/null)
 size=$(( (max_ref / 100000000 + 1) * 100000000 ))
 sed -i "s/_orders.resize([0-9]*);/_orders.resize($size);/" "$ct/performance/market_manager_optimized.cpp"
