@@ -42,26 +42,35 @@ std::size_t lower(const Vec& v, Price p, Better better) {
 }
 }  // namespace
 
-FastBook::Level* FastBook::find_level(Locate l, Side s, Price p) noexcept {
-  Side_& v = books_[l].sides[static_cast<int>(s)];
-  const std::size_t i = lower(v, p, [s](Price a, Price b) { return better(s, a, b); });
-  return (i < v.size() && v[i].price == p) ? &v[i] : nullptr;
+std::size_t FastBook::position(const Side_& v, Side s, Price p) const noexcept {
+  return lower(v, p, [s](Price a, Price b) { return better(s, a, b); });
 }
 
-const FastBook::Level* FastBook::find_level(Locate l, Side s, Price p) const noexcept {
-  const Side_& v = books_[l].sides[static_cast<int>(s)];
-  const std::size_t i = lower(v, p, [s](Price a, Price b) { return better(s, a, b); });
-  return (i < v.size() && v[i].price == p) ? &v[i] : nullptr;
-}
-
-FastBook::Level& FastBook::level_for_insert(Locate l, Side s, Price p) {
+std::uint32_t FastBook::level_for_insert(Locate l, Side s, Price p) {
   Side_& v = books_[l].sides[static_cast<int>(s)];
-  const std::size_t i = lower(v, p, [s](Price a, Price b) { return better(s, a, b); });
+  const std::size_t i = position(v, s, p);
   if (i < v.size() && v[i].price == p) {
-    return v[i];
+    return v[i].level;
   }
+  std::uint32_t li = free_level_;
+  if (li != kNil) {
+    free_level_ = levels_[li].head;
+  } else {
+    levels_.emplace_back();
+    li = static_cast<std::uint32_t>(levels_.size() - 1);
+  }
+  levels_[li] = Level{0, p, 0, kNil, kNil};
+  v.insert(v.begin() + static_cast<std::ptrdiff_t>(i), PriceRef{p, li});
   ++level_count_;
-  return *v.insert(v.begin() + static_cast<std::ptrdiff_t>(i), Level{p, 0, 0, kNil, kNil});
+  return li;
+}
+
+void FastBook::remove_level(Locate l, Side s, Price p, std::uint32_t level) {
+  Side_& v = books_[l].sides[static_cast<int>(s)];
+  v.erase(v.begin() + static_cast<std::ptrdiff_t>(position(v, s, p)));
+  levels_[level].head = free_level_;
+  free_level_ = level;
+  --level_count_;
 }
 
 // ---- orders -----------------------------------------------------------------
@@ -78,8 +87,9 @@ std::uint32_t FastBook::alloc_slot() {
 
 void FastBook::insert(OrderRef ref, Locate locate, Side side, Shares shares, Price price) {
   const std::uint32_t s = alloc_slot();
-  Level& lvl = level_for_insert(locate, side, price);
-  slots_[s] = Slot{ref, price, shares, lvl.tail, kNil, locate, side};
+  const std::uint32_t li = level_for_insert(locate, side, price);
+  Level& lvl = levels_[li];
+  slots_[s] = Slot{ref, price, shares, lvl.tail, kNil, li, locate, side};
   if (lvl.tail != kNil) {
     slots_[lvl.tail].next = s;
   } else {
@@ -95,8 +105,7 @@ void FastBook::insert(OrderRef ref, Locate locate, Side side, Shares shares, Pri
 
 void FastBook::erase(std::uint32_t s) {
   const Slot o = slots_[s];
-  Side_& v = books_[o.locate].sides[static_cast<int>(o.side)];
-  Level* lvl = find_level(o.locate, o.side, o.price);
+  Level* lvl = &levels_[o.level];
   if (o.prev != kNil) {
     slots_[o.prev].next = o.next;
   } else {
@@ -109,8 +118,7 @@ void FastBook::erase(std::uint32_t s) {
   }
   lvl->shares -= o.shares;
   if (--lvl->count == 0) {
-    v.erase(v.begin() + (lvl - v.data()));
-    --level_count_;
+    remove_level(o.locate, o.side, o.price, o.level);
   }
   index_.erase(o.ref);
   slots_[s].next = free_;
@@ -124,7 +132,7 @@ void FastBook::reduce(std::uint32_t s, Shares n) {
     erase(s);
     return;
   }
-  find_level(o.locate, o.side, o.price)->shares -= n;
+  levels_[o.level].shares -= n;
   o.shares -= n;
 }
 
@@ -228,6 +236,9 @@ void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const
   const OrderRef ref = itch::load_be64(p + 11);
   if (stage == 0) {
     index_.prefetch(ref);
+    if (add) {
+      __builtin_prefetch(&books_[itch::load_be16(p + 1)]);
+    }
     if (type == 'U' && len >= 27) {
       index_.prefetch(itch::load_be64(p + 19));
     }
@@ -237,6 +248,7 @@ void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const
     const Side_& v = books_[itch::load_be16(p + 1)].sides[p[19] == 'B' ? 0 : 1];
     if (!v.empty()) {
       __builtin_prefetch(&v.back());
+      __builtin_prefetch(&levels_[v.back().level]);
     }
     return;
   }
@@ -253,14 +265,16 @@ std::optional<LevelInfo> FastBook::best(Locate locate, Side side) const {
   if (v.empty()) {
     return std::nullopt;
   }
-  return LevelInfo{v.back().price, v.back().shares, v.back().count};
+  const Level& b = levels_[v.back().level];
+  return LevelInfo{b.price, b.shares, b.count};
 }
 
 std::vector<LevelInfo> FastBook::levels(Locate locate, Side side, std::size_t depth) const {
   const Side_& v = books_[locate].sides[static_cast<int>(side)];
   std::vector<LevelInfo> out;
   for (auto it = v.rbegin(); it != v.rend() && out.size() < depth; ++it) {
-    out.push_back({it->price, it->shares, it->count});
+    const Level& lv = levels_[it->level];
+    out.push_back({lv.price, lv.shares, lv.count});
   }
   return out;
 }
@@ -289,7 +303,8 @@ std::uint64_t FastBook::checksum() const {
   for (std::size_t l = 0; l < books_.size(); ++l) {
     for (const Side side : {Side::buy, Side::sell}) {
       const Side_& v = books_[l].sides[static_cast<int>(side)];
-      for (const Level& lv : v) {  // the sum is order-independent across levels
+      for (const PriceRef& pr : v) {  // the sum is order-independent across levels
+        const Level& lv = levels_[pr.level];
         sum += mix({l, static_cast<std::uint64_t>(side), lv.price, lv.shares, lv.count});
         std::uint64_t rank = 0;
         for (std::uint32_t s = lv.head; s != kNil; s = slots_[s].next) {
