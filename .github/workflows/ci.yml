@@ -19,6 +19,7 @@ jobs:
           - {name: gcc-13 release, preset: release, cc: gcc-13, cxx: g++-13}
           - {name: clang-18 release, preset: release, cc: clang-18, cxx: clang++-18}
           - {name: clang-18 asan+ubsan, preset: asan, cc: clang-18, cxx: clang++-18}
+          - {name: clang-18 tsan, preset: tsan, cc: clang-18, cxx: clang++-18}
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}

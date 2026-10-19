@@ -48,6 +48,11 @@ add_executable(itch-stats tools/itch_stats.cpp)
 target_link_libraries(itch-stats PRIVATE itchbook::core)
 itchbook_set_warnings(itch-stats)
 
+find_package(Threads REQUIRED)
+add_executable(itch-bench tools/itch_bench.cpp)
+target_link_libraries(itch-bench PRIVATE itchbook::core Threads::Threads)
+itchbook_set_warnings(itch-bench)
+
 add_executable(itch-book tools/itch_book.cpp)
 target_link_libraries(itch-book PRIVATE itchbook::core)
 itchbook_set_warnings(itch-book)

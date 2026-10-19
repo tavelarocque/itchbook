@@ -4,9 +4,10 @@ add_executable(itchbook_tests
   test_properties.cpp
   test_fields.cpp
   test_book.cpp
+  test_bench_support.cpp
 )
 target_include_directories(itchbook_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main rapidcheck rapidcheck_gtest)
+target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main rapidcheck rapidcheck_gtest Threads::Threads)
 itchbook_set_warnings(itchbook_tests)
 
 include(GoogleTest)
