@@ -5,14 +5,22 @@
 // framing, decoding and book updates. Its time spent waiting for input is
 // measured and subtracted.
 //
-//   itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--inline-input] [--max-messages N] [--pin CPU]
-//   FILE|-
+//   itch-bench [--engine fast|reference] [--latency] [--no-prefetch | --prefetch-stages MASK | --no-lookahead]
+//   [--inline-input] [--max-messages N] [--pin CPU] FILE|-
 //
 // Default: throughput, i.e. wall time of the measuring thread minus input
 // waits, divided by messages. --latency also times every book update
 // individually into a log-linear histogram and prints percentiles. The timer
 // costs a few ns per read (more on ARM), so the throughput figure always comes
 // from a run without --latency.
+//
+// Prefetch modes, for measuring what software prefetching is worth:
+//   default             both stages (index entry 16 frames ahead, then the
+//                       order slot or best level 8 frames ahead)
+//   --prefetch-stages M bit 0 enables stage 0, bit 1 stage 1
+//   --no-prefetch       the parser still runs its lookahead cursors but no
+//                       prefetch is issued (same as --prefetch-stages 0)
+//   --no-lookahead      no lookahead cursors at all: plain decode-and-apply
 
 #include <charconv>
 #include <chrono>
@@ -41,18 +49,18 @@ namespace {
 using namespace itchbook;  // NOLINT(google-build-using-namespace)
 using ull = unsigned long long;
 
-template <class BookT, bool kTime>
+template <class BookT, bool kTime, bool kScout = true>
 struct BenchHandler : itch::NullHandler {
   using NullHandler::on;
   BookT book;
   bench::Histogram hist;
   std::uint64_t updates = 0;
-  bool prefetch_on = true;
+  unsigned prefetch_stages = 3;  // bit i enables prefetch stage i
 
   void prefetch(const std::uint8_t* p, std::size_t len, int stage) const noexcept
-    requires requires(const BookT& b, const std::uint8_t* q, std::size_t n) { b.prefetch(q, n, 0); }
+    requires(kScout && requires(const BookT& b, const std::uint8_t* q, std::size_t n) { b.prefetch(q, n, 0); })
   {
-    if (prefetch_on) {
+    if (((prefetch_stages >> static_cast<unsigned>(stage)) & 1U) != 0) {
       book.prefetch(p, len, stage);
     }
   }
@@ -120,11 +128,12 @@ void pin_this_thread(int cpu) {
 
 struct Options {
   int pin = -1;
-  bool prefetch = true;
+  unsigned prefetch_stages = 3;
+  bool scout = true;          // run the parser's lookahead cursors at all
   bool inline_input = false;  // read input on the measured thread, as CppTrader does
 };
 
-template <class BookT, bool kTime>
+template <class BookT, bool kTime, bool kScout = true>
 int run(const std::string& path, const itch::StreamLimits& limits, const Options& o) {
   const bench::TickCalibration cal;
   std::unique_ptr<io::ByteSource> input;
@@ -138,8 +147,8 @@ int run(const std::string& path, const itch::StreamLimits& limits, const Options
   }
   pin_this_thread(o.pin);  // after the producer thread exists, so it does not inherit the pin
   // Heap-allocate: the handler holds the book and a 60 KB histogram.
-  auto h = std::make_unique<BenchHandler<BookT, kTime>>();
-  h->prefetch_on = o.prefetch;
+  auto h = std::make_unique<BenchHandler<BookT, kTime, kScout>>();
+  h->prefetch_stages = o.prefetch_stages;
   const auto t0 = std::chrono::steady_clock::now();
   const auto st = itch::parse_stream(*input, *h, limits);
   const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -150,7 +159,8 @@ int run(const std::string& path, const itch::StreamLimits& limits, const Options
 
   std::printf("engine\t%s\n", std::is_same_v<BookT, book::FastBook> ? "fast" : "reference");
   std::printf("file\t%s\n", path.c_str());
-  std::printf("prefetch\t%s\n", itch::Prefetching<BenchHandler<BookT, kTime>> && o.prefetch ? "on" : "off");
+  std::printf("prefetch_stages\t%u\n", itch::Prefetching<BenchHandler<BookT, kTime, kScout>> ? o.prefetch_stages : 0U);
+  std::printf("lookahead_scan\t%s\n", itch::Prefetching<BenchHandler<BookT, kTime, kScout>> ? "on" : "off");
   std::printf("input\t%s\n", o.inline_input ? "inline" : "background thread");
   std::printf("messages\t%llu\n", static_cast<ull>(st.messages));
   std::printf("book_updates\t%llu\n", static_cast<ull>(h->updates));
@@ -189,7 +199,8 @@ int run(const std::string& path, const itch::StreamLimits& limits, const Options
 
 void usage() {
   std::fprintf(stderr,
-               "usage: itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--inline-input] "
+               "usage: itch-bench [--engine fast|reference] [--latency] [--no-prefetch | --prefetch-stages MASK | "
+               "--no-lookahead] [--inline-input] "
                "[--max-messages N] [--pin CPU] "
                "FILE|-\n");
 }
@@ -213,7 +224,15 @@ int main(int argc, char** argv) {
         return 1;
       }
     } else if (a == "--no-prefetch") {
-      opt.prefetch = false;
+      opt.prefetch_stages = 0;
+    } else if (a == "--no-lookahead") {
+      opt.scout = false;
+    } else if (a == "--prefetch-stages" && has_value) {
+      const std::string_view v = argv[++i];
+      if (std::from_chars(v.data(), v.data() + v.size(), opt.prefetch_stages).ec != std::errc{}) {
+        usage();
+        return 1;
+      }
     } else if (a == "--inline-input") {
       opt.inline_input = true;
     } else if (a == "--latency") {
@@ -243,6 +262,10 @@ int main(int argc, char** argv) {
   }
   try {
     if (fast) {
+      if (!opt.scout) {
+        return latency ? run<book::FastBook, true, false>(path, limits, opt)
+                       : run<book::FastBook, false, false>(path, limits, opt);
+      }
       return latency ? run<book::FastBook, true>(path, limits, opt) : run<book::FastBook, false>(path, limits, opt);
     }
     return latency ? run<book::ReferenceBook, true>(path, limits, opt)
