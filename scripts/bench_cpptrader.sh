@@ -103,7 +103,7 @@ ninja -C "$ct/temp" "${targets[@]}" > /dev/null
 run() {
   local label="$1"; shift
   echo "## $label" | tee -a "$out"
-  "${pin[@]}" "$@" 2>&1 | tee -a "$out" | grep -Ei "processing time|message latency|ns_per_message|busy_s|orphans" || true
+  ${pin[@]+"${pin[@]}"} "$@" 2>&1 | tee -a "$out" | grep -Ei "processing time|message latency|ns_per_message|busy_s|orphans" || true
 }
 for i in $(seq 1 "$repeats"); do
   echo "### round $i" | tee -a "$out"
