@@ -43,11 +43,11 @@ jobs:
       - name: Install tools
         run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev
       - name: Build itch-stats
-        run: cmake --preset release -DITCHBOOK_BUILD_TESTS=OFF -DITCHBOOK_BUILD_BENCH=OFF && cmake --build --preset release --target itch-stats
+        run: cmake --preset release -DITCHBOOK_BUILD_TESTS=OFF -DITCHBOOK_BUILD_BENCH=OFF && cmake --build --preset release --target itch-stats itch-book
       - name: Lint
         run: uv run ruff check tools && uv run ruff format --check tools
       - name: Reference parser and mutation tests
-        run: ITCH_STATS=build/release/itch-stats uv run pytest -q
+        run: ITCH_STATS=build/release/itch-stats ITCH_BOOK=build/release/itch-book uv run pytest -q
 
   lint:
     runs-on: ubuntu-24.04

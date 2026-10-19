@@ -3,6 +3,7 @@ add_executable(itchbook_tests
   test_stream.cpp
   test_properties.cpp
   test_fields.cpp
+  test_book.cpp
 )
 target_include_directories(itchbook_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main rapidcheck rapidcheck_gtest)
@@ -18,5 +19,9 @@ if(Python3_FOUND)
   add_test(NAME fingerprint_matches_python_reference
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/itchref/crosscheck.py
             --itch-stats $<TARGET_FILE:itch-stats> --synthetic 20000
+  )
+  add_test(NAME book_matches_python_reference
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/itchref/crosscheck_book.py
+            --itch-book $<TARGET_FILE:itch-book> --synthetic 50000
   )
 endif()

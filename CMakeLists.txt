@@ -26,6 +26,7 @@ find_package(ZLIB REQUIRED)
 # Core library: ITCH decoding and streaming input. Everything else links this.
 add_library(itchbook_core
   src/source.cpp
+  src/reference_book.cpp
 )
 add_library(itchbook::core ALIAS itchbook_core)
 target_include_directories(itchbook_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -45,6 +46,10 @@ endif()
 add_executable(itch-stats tools/itch_stats.cpp)
 target_link_libraries(itch-stats PRIVATE itchbook::core)
 itchbook_set_warnings(itch-stats)
+
+add_executable(itch-book tools/itch_book.cpp)
+target_link_libraries(itch-book PRIVATE itchbook::core)
+itchbook_set_warnings(itch-book)
 
 if(ITCHBOOK_BUILD_TESTS OR ITCHBOOK_BUILD_BENCH)
   include(Dependencies)

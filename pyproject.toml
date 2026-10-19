@@ -23,4 +23,4 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["itchref", "crosscheck"]
+known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book"]
