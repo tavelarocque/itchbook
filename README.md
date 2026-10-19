@@ -11,8 +11,8 @@ It is then used as ground truth for two microstructure studies:
 | Milestone | What | State |
 |---|---|---|
 | M0 | Build, CI, sanitizers, test/bench/fuzz tooling, data scripts | done |
-| M1 | ITCH 5.0 parser: zero-copy views of all 23 message types, bounded-memory gzip streaming | code done; full-day gate pending |
-| M2 | L3 book with zero-orphan and invariant gates | next |
+| M1 | ITCH 5.0 parser: zero-copy views of all 23 message types, bounded-memory gzip streaming | done: 423,285,709 messages on 01302020, identical to the independent reference and the published counts |
+| M2 | L3 book (`ReferenceBook`, `itch-book`) with zero-orphan, invariant and cross-implementation gates | in progress |
 | M3 | Performance against CppTrader on the same file and machine | |
 | M4 | Research 1: queue-position ground truth | |
 | M5 | Research 2: forecasting audit | |
