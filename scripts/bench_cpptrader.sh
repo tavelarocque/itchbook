@@ -114,7 +114,7 @@ for i in $(seq 1 "$repeats"); do
       "$ct/temp/cpptrader-performance-market_manager_optimized" -i "$raw"
   fi
   run "itchbook fast (L3, time priority)" "$bin/itch-bench" --inline-input --engine fast "$raw"
-  run "itchbook fast, no prefetch" "$bin/itch-bench" --inline-input --no-prefetch --engine fast "$raw"
+  run "itchbook fast, with software prefetch" "$bin/itch-bench" --inline-input --prefetch --engine fast "$raw"
 done
 run "itchbook fast, per-update latency" "$bin/itch-bench" --inline-input --latency --engine fast "$raw"
 run "itchbook reference (M2)" "$bin/itch-bench" --inline-input --engine reference "$raw"

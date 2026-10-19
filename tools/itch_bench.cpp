@@ -5,7 +5,7 @@
 // framing, decoding and book updates. Its time spent waiting for input is
 // measured and subtracted.
 //
-//   itch-bench [--engine fast|reference] [--latency] [--no-prefetch | --prefetch-stages MASK | --no-lookahead]
+//   itch-bench [--engine fast|reference] [--latency] [--prefetch | --prefetch-stages MASK]
 //   [--inline-input] [--max-messages N] [--pin CPU] FILE|-
 //
 // Default: throughput, i.e. wall time of the measuring thread minus input
@@ -14,13 +14,16 @@
 // costs a few ns per read (more on ARM), so the throughput figure always comes
 // from a run without --latency.
 //
-// Prefetch modes, for measuring what software prefetching is worth:
-//   default             both stages (index entry 16 frames ahead, then the
-//                       order slot or best level 8 frames ahead)
-//   --prefetch-stages M bit 0 enables stage 0, bit 1 stage 1
-//   --no-prefetch       the parser still runs its lookahead cursors but no
-//                       prefetch is issued (same as --prefetch-stages 0)
-//   --no-lookahead      no lookahead cursors at all: plain decode-and-apply
+// Software prefetching (FastBook only). Off by default: on the final engine
+// (paged index, level pool) it measured 6-18 ns per message slower than plain
+// decode-and-apply on a Xeon 8488C, because the lookahead pass costs more
+// than the misses it hides. Kept for measurement and for the hash index:
+//   default             no lookahead: decode and apply each message in turn
+//   --prefetch          lookahead cursors with both stages (index entry 16
+//                       frames ahead, then the order slot or best level 8 ahead)
+//   --prefetch-stages M lookahead cursors; bit 0 enables stage 0, bit 1
+//                       stage 1, so 0 measures the cost of the lookahead alone
+//   --no-prefetch       the default, accepted for older scripts
 
 #include <charconv>
 #include <chrono>
@@ -129,7 +132,7 @@ void pin_this_thread(int cpu) {
 struct Options {
   int pin = -1;
   unsigned prefetch_stages = 3;
-  bool scout = true;          // run the parser's lookahead cursors at all
+  bool scout = false;         // run the parser's lookahead cursors at all
   bool inline_input = false;  // read input on the measured thread, as CppTrader does
 };
 
@@ -199,8 +202,8 @@ int run(const std::string& path, const itch::StreamLimits& limits, const Options
 
 void usage() {
   std::fprintf(stderr,
-               "usage: itch-bench [--engine fast|reference] [--latency] [--no-prefetch | --prefetch-stages MASK | "
-               "--no-lookahead] [--inline-input] "
+               "usage: itch-bench [--engine fast|reference] [--latency] [--prefetch | --prefetch-stages MASK] "
+               "[--inline-input] "
                "[--max-messages N] [--pin CPU] "
                "FILE|-\n");
 }
@@ -224,10 +227,12 @@ int main(int argc, char** argv) {
         return 1;
       }
     } else if (a == "--no-prefetch") {
-      opt.prefetch_stages = 0;
-    } else if (a == "--no-lookahead") {
       opt.scout = false;
+    } else if (a == "--prefetch") {
+      opt.scout = true;
+      opt.prefetch_stages = 3;
     } else if (a == "--prefetch-stages" && has_value) {
+      opt.scout = true;
       const std::string_view v = argv[++i];
       if (std::from_chars(v.data(), v.data() + v.size(), opt.prefetch_stages).ec != std::errc{}) {
         usage();

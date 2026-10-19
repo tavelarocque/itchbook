@@ -31,6 +31,6 @@ for i in $(seq 1 "$rounds"); do
   run "stage 0 only (index entry, book header)" --prefetch-stages 1
   run "stage 1 only (slot or best level)" --prefetch-stages 2
   run "lookahead, no prefetch" --prefetch-stages 0
-  run "no lookahead" --no-lookahead
+  run "no lookahead (default)"
 done
 echo "results: $out"
