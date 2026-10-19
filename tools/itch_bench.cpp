@@ -5,7 +5,8 @@
 // framing, decoding and book updates. Its time spent waiting for input is
 // measured and subtracted.
 //
-//   itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--max-messages N] [--pin CPU] FILE|-
+//   itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--inline-input] [--max-messages N] [--pin CPU]
+//   FILE|-
 //
 // Default: throughput, i.e. wall time of the measuring thread minus input
 // waits, divided by messages. --latency also times every book update
@@ -117,25 +118,40 @@ void pin_this_thread(int cpu) {
 #endif
 }
 
+struct Options {
+  int pin = -1;
+  bool prefetch = true;
+  bool inline_input = false;  // read input on the measured thread, as CppTrader does
+};
+
 template <class BookT, bool kTime>
-int run(const std::string& path, const itch::StreamLimits& limits, int pin, bool use_prefetch) {
+int run(const std::string& path, const itch::StreamLimits& limits, const Options& o) {
   const bench::TickCalibration cal;
-  auto input = std::make_unique<io::PrefetchSource>(io::open_source(path));
-  pin_this_thread(pin);  // after the producer thread exists, so it does not inherit the pin
+  std::unique_ptr<io::ByteSource> input;
+  io::PrefetchSource* prefetcher = nullptr;
+  if (o.inline_input) {
+    input = io::open_source(path);
+  } else {
+    auto p = std::make_unique<io::PrefetchSource>(io::open_source(path));
+    prefetcher = p.get();
+    input = std::move(p);
+  }
+  pin_this_thread(o.pin);  // after the producer thread exists, so it does not inherit the pin
   // Heap-allocate: the handler holds the book and a 60 KB histogram.
   auto h = std::make_unique<BenchHandler<BookT, kTime>>();
-  h->prefetch_on = use_prefetch;
+  h->prefetch_on = o.prefetch;
   const auto t0 = std::chrono::steady_clock::now();
   const auto st = itch::parse_stream(*input, *h, limits);
   const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  const double waited = static_cast<double>(input->wait_ns()) / 1e9;
+  const double waited = prefetcher != nullptr ? static_cast<double>(prefetcher->wait_ns()) / 1e9 : 0.0;
   const double busy = wall - waited;
   const double ns_tick = cal.ns_per_tick();
   const auto& s = h->book.stats();
 
   std::printf("engine\t%s\n", std::is_same_v<BookT, book::FastBook> ? "fast" : "reference");
   std::printf("file\t%s\n", path.c_str());
-  std::printf("prefetch\t%s\n", itch::Prefetching<BenchHandler<BookT, kTime>> && use_prefetch ? "on" : "off");
+  std::printf("prefetch\t%s\n", itch::Prefetching<BenchHandler<BookT, kTime>> && o.prefetch ? "on" : "off");
+  std::printf("input\t%s\n", o.inline_input ? "inline" : "background thread");
   std::printf("messages\t%llu\n", static_cast<ull>(st.messages));
   std::printf("book_updates\t%llu\n", static_cast<ull>(h->updates));
   std::printf("orphans\t%llu\n", static_cast<ull>(s.orphans()));
@@ -165,7 +181,8 @@ int run(const std::string& path, const itch::StreamLimits& limits, int pin, bool
 
 void usage() {
   std::fprintf(stderr,
-               "usage: itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--max-messages N] [--pin CPU] "
+               "usage: itch-bench [--engine fast|reference] [--latency] [--no-prefetch] [--inline-input] "
+               "[--max-messages N] [--pin CPU] "
                "FILE|-\n");
 }
 
@@ -174,8 +191,7 @@ void usage() {
 int main(int argc, char** argv) {
   bool fast = true;
   bool latency = false;
-  bool prefetch = true;
-  int pin = -1;
+  Options opt;
   itch::StreamLimits limits;
   std::string path;
   for (int i = 1; i < argc; ++i) {
@@ -189,12 +205,14 @@ int main(int argc, char** argv) {
         return 1;
       }
     } else if (a == "--no-prefetch") {
-      prefetch = false;
+      opt.prefetch = false;
+    } else if (a == "--inline-input") {
+      opt.inline_input = true;
     } else if (a == "--latency") {
       latency = true;
     } else if (a == "--pin" && has_value) {
       const std::string_view v = argv[++i];
-      if (std::from_chars(v.data(), v.data() + v.size(), pin).ec != std::errc{}) {
+      if (std::from_chars(v.data(), v.data() + v.size(), opt.pin).ec != std::errc{}) {
         usage();
         return 1;
       }
@@ -217,11 +235,10 @@ int main(int argc, char** argv) {
   }
   try {
     if (fast) {
-      return latency ? run<book::FastBook, true>(path, limits, pin, prefetch)
-                     : run<book::FastBook, false>(path, limits, pin, prefetch);
+      return latency ? run<book::FastBook, true>(path, limits, opt) : run<book::FastBook, false>(path, limits, opt);
     }
-    return latency ? run<book::ReferenceBook, true>(path, limits, pin, prefetch)
-                   : run<book::ReferenceBook, false>(path, limits, pin, prefetch);
+    return latency ? run<book::ReferenceBook, true>(path, limits, opt)
+                   : run<book::ReferenceBook, false>(path, limits, opt);
   } catch (const std::exception& e) {
     std::fprintf(stderr, "itch-bench: %s\n", e.what());
     return 1;
