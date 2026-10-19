@@ -1,0 +1,11 @@
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR "ITCHBOOK_BUILD_FUZZ needs clang (libFuzzer)")
+endif()
+if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+  message(FATAL_ERROR "Apple clang ships without libFuzzer; use Homebrew LLVM or the Linux CI job")
+endif()
+
+add_executable(fuzz_stream fuzz_stream.cpp)
+target_link_libraries(fuzz_stream PRIVATE itchbook::core)
+target_compile_options(fuzz_stream PRIVATE -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g)
+target_link_options(fuzz_stream PRIVATE -fsanitize=fuzzer,address,undefined)
