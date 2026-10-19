@@ -44,6 +44,18 @@ struct StreamStats {
 
 inline constexpr std::size_t kMaxFrameBytes = 2 + std::numeric_limits<std::uint16_t>::max();
 
+// Optional software prefetching. A handler that defines
+//   void prefetch(const std::uint8_t* payload, std::size_t len, int stage);
+// is shown each frame twice before it is decoded: at stage 0 when it is
+// kFarAhead frames ahead (start loading what can be located from the message
+// alone, e.g. a hash bucket) and at stage 1 when it is kNearAhead frames ahead
+// (follow what stage 0 brought into cache, e.g. the order slot the bucket
+// names). Prefetching never changes behaviour, only how long loads take.
+template <class H>
+concept Prefetching = requires(H& h, const std::uint8_t* p, std::size_t n) { h.prefetch(p, n, 0); };
+inline constexpr int kFarAhead = 16;
+inline constexpr int kNearAhead = 8;
+
 template <class Handler>
 StreamStats parse_stream(io::ByteSource& src, Handler& h, const StreamLimits& limits = {},
                          std::size_t read_bytes = std::size_t{1} << 20U) {
@@ -54,8 +66,40 @@ StreamStats parse_stream(io::ByteSource& src, Handler& h, const StreamLimits& li
   std::size_t begin = 0;
   std::size_t end = 0;
 
+  // Prefetch cursors (used only by Prefetching handlers): byte offsets of the
+  // next frame each stage will look at. They run ahead of `begin` within the
+  // bytes already in the buffer.
+  std::size_t far = 0;   // NOLINT(misc-const-correctness): written only by Prefetching handlers
+  std::size_t near = 0;  // NOLINT(misc-const-correctness)
+  const auto scout = [&](std::size_t& cur, int stage) {
+    if (end - cur >= 2) {
+      const std::size_t len = load_be16(buf.data() + cur);
+      if (end - cur >= 2 + len) {
+        if (len != 0) {
+          if constexpr (Prefetching<Handler>) {
+            h.prefetch(buf.data() + cur + 2, len, stage);
+          }
+        }
+        cur += 2 + len;
+      }
+    }
+  };
+
   for (;;) {
+    if constexpr (Prefetching<Handler>) {
+      far = near = begin;
+      for (int i = 0; i < kFarAhead; ++i) {
+        scout(far, 0);
+      }
+      for (int i = 0; i < kNearAhead; ++i) {
+        scout(near, 1);
+      }
+    }
     while (end - begin >= 2) {
+      if constexpr (Prefetching<Handler>) {
+        scout(far, 0);
+        scout(near, 1);
+      }
       const std::uint8_t* frame = buf.data() + begin;
       const std::size_t len = load_be16(frame);
       if (end - begin < 2 + len) {

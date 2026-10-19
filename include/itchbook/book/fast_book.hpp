@@ -48,6 +48,12 @@ class FastBook {
   [[nodiscard]] std::uint64_t checksum() const;
   [[nodiscard]] const BookStats& stats() const noexcept { return stats_; }
 
+  // Software prefetch for an ITCH message that will be applied soon (see
+  // itch::Prefetching). Stage 0: the hash bucket of every order reference the
+  // message names. Stage 1: the order slot that bucket points to, and for adds
+  // the best level of the symbol's side. Reads only bytes within `len`.
+  void prefetch(const std::uint8_t* p, std::size_t len, int stage) const noexcept;
+
  private:
   static constexpr std::uint32_t kNil = UINT32_MAX;
 

@@ -8,6 +8,7 @@
 //
 //   itch-stats [--fingerprint] [--max-messages N] FILE|-
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -41,6 +42,8 @@ struct StatsHandler : itch::NullHandler {
   std::uint64_t last_ts = 0;
   std::uint64_t ts_regressions = 0;  // timestamp lower than the previous message's
   std::vector<std::pair<char, std::uint64_t>> system_events;
+  std::uint64_t max_order_ref = 0;  // largest reference introduced by A, F or U
+  std::uint16_t max_locate = 0;
 
   template <class M>
   void on(const M& m) {
@@ -57,6 +60,13 @@ struct StatsHandler : itch::NullHandler {
     if constexpr (std::is_same_v<M, itch::SystemEvent>) {
       system_events.emplace_back(m.event_code(), ts);
     }
+    if constexpr (std::is_same_v<M, itch::AddOrder> || std::is_same_v<M, itch::AddOrderMpid>) {
+      max_order_ref = std::max(max_order_ref, m.order_ref());
+    }
+    if constexpr (std::is_same_v<M, itch::OrderReplace>) {
+      max_order_ref = std::max(max_order_ref, m.new_order_ref());
+    }
+    max_locate = std::max(max_locate, m.stock_locate());
     if constexpr (kFingerprint) {
       std::size_t i = 0;
       itch::visit_fields(m, [&](std::string_view name, std::uint64_t v) {
@@ -115,6 +125,8 @@ int run(const std::string& path, const itch::StreamLimits& limits) {
     std::fprintf(stderr, "  timestamps %s .. %s, %llu regressions\n", hms(h.first_ts).c_str(), hms(h.last_ts).c_str(),
                  static_cast<unsigned long long>(h.ts_regressions));
   }
+  std::fprintf(stderr, "  max order reference %llu, max stock locate %u\n",
+               static_cast<unsigned long long>(h.max_order_ref), static_cast<unsigned>(h.max_locate));
   std::fprintf(stderr, "  system events:");
   for (std::size_t i = 0; i < h.system_events.size() && i < 16; ++i) {
     const auto& [code, ts] = h.system_events[i];

@@ -1,7 +1,9 @@
 #include "itchbook/book/fast_book.hpp"
 
 #include <bit>
+
 #include <limits>
+#include "itchbook/itch/endian.hpp"
 
 namespace itchbook::book {
 
@@ -278,6 +280,36 @@ void FastBook::replace(Locate locate, OrderRef old_ref, OrderRef new_ref, Shares
     return;
   }
   insert(new_ref, l, side, shares, price);
+}
+
+// ---- prefetch ---------------------------------------------------------------
+
+void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const noexcept {
+  const char type = static_cast<char>(p[0]);
+  const bool add = type == 'A' || type == 'F';
+  const bool by_ref = type == 'E' || type == 'C' || type == 'X' || type == 'D' || type == 'U';
+  if ((!add && !by_ref) || len < 20) {
+    return;
+  }
+  const OrderRef ref = itch::load_be64(p + 11);
+  if (stage == 0) {
+    __builtin_prefetch(&index_[home(ref)]);
+    if (type == 'U' && len >= 27) {
+      __builtin_prefetch(&index_[home(itch::load_be64(p + 19))]);
+    }
+    return;
+  }
+  if (add) {
+    const Side_& v = books_[itch::load_be16(p + 1)].sides[p[19] == 'B' ? 0 : 1];
+    if (!v.empty()) {
+      __builtin_prefetch(&v.back());
+    }
+    return;
+  }
+  const Bucket& b = index_[home(ref)];
+  if (b.slot != kNil && b.ref == ref) {
+    __builtin_prefetch(&slots_[b.slot]);
+  }
 }
 
 // ---- queries ----------------------------------------------------------------

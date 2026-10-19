@@ -88,3 +88,51 @@ RC_GTEST_PROP(StreamProperties, GzipRoundTrip, ()) {
 
 }  // namespace
 }  // namespace itchbook::itch
+
+namespace itchbook::itch {
+namespace {
+
+// A handler that also asks for prefetches: delivery must be unchanged, and
+// every prefetch must describe a complete frame that is about to be decoded.
+struct PrefetchRecorder : test::Recorder {
+  std::uint64_t prefetches[2] = {0, 0};
+  std::uint64_t bad = 0;
+  void prefetch(const std::uint8_t* p, std::size_t len, int stage) {
+    ++prefetches[stage];
+    // Touch the last byte: ASan flags any frame that runs past the buffer.
+    volatile std::uint8_t last = p[len - 1];
+    (void)last;
+    if (kMessageSize[p[0]] != 0 && kMessageSize[p[0]] != len) {
+      ++bad;  // the stream below only contains well-formed frames
+    }
+  }
+};
+static_assert(Prefetching<PrefetchRecorder>);
+static_assert(!Prefetching<test::Recorder>);
+
+RC_GTEST_PROP(StreamProperties, PrefetchingDoesNotChangeDelivery, ()) {
+  const auto types = test::known_types();
+  const auto n = *rc::gen::inRange<std::size_t>(0, 3000);
+  const auto seed = *rc::gen::arbitrary<std::uint64_t>();
+  const auto chunk = *rc::gen::inRange<std::size_t>(1, 400);
+  const auto read_bytes = *rc::gen::inRange<std::size_t>(1, 3000);
+  std::mt19937_64 rng(seed);
+  std::vector<std::vector<std::uint8_t>> expected;
+  std::vector<std::uint8_t> stream;
+  for (std::size_t i = 0; i < n; ++i) {
+    expected.push_back(test::random_message(types[rng() % types.size()], rng));
+    test::append_frame(stream, expected.back());
+  }
+  io::MemorySource src(stream, chunk);
+  PrefetchRecorder rec;
+  const auto st = parse_stream(src, rec, {}, read_bytes);
+  RC_ASSERT(st.clean());
+  RC_ASSERT(rec.payloads == expected);
+  RC_ASSERT(rec.bad == 0U);
+  // Every frame is announced at least once per stage before it is decoded.
+  RC_ASSERT(rec.prefetches[0] >= n);
+  RC_ASSERT(rec.prefetches[1] >= n);
+}
+
+}  // namespace
+}  // namespace itchbook::itch
