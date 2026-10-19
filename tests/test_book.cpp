@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "itchbook/book/fast_book.hpp"
@@ -390,6 +391,68 @@ RC_GTEST_PROP(FastBookProperties, MatchesReferenceOnDeepBooks, ()) {
 }
 RC_GTEST_PROP(FastBookProperties, MatchesReferenceWhileIndexGrows, ()) {
   differential(*rc::gen::inRange(600, 1500), 40, 1);
+}
+
+}  // namespace
+}  // namespace itchbook::book
+
+// ---- order indexes against std::unordered_map ----------------------------------
+
+namespace itchbook::book {
+namespace {
+
+template <class Index>
+void index_matches_map() {
+  Index idx(16);
+  std::unordered_map<OrderRef, std::uint32_t> ref;
+  const auto n = *rc::gen::inRange(1, 3000);
+  OrderRef next = *rc::gen::inRange<OrderRef>(0, 1U << 20U);
+  std::vector<OrderRef> live;
+  for (int i = 0; i < n; ++i) {
+    const int op = *rc::gen::inRange(0, 10);
+    if (op < 5 || live.empty()) {
+      // Mostly increasing refs, like NASDAQ; sometimes a jump, sometimes a huge (fallback) ref.
+      const int kind = *rc::gen::inRange(0, 20);
+      OrderRef r = kind == 0 ? (OrderRef{1} << 40U) + *rc::gen::inRange<OrderRef>(0, 1000)
+                             : (kind == 1 ? next + 200'000 : next + *rc::gen::inRange<OrderRef>(1, 50));
+      next = std::max(next, r < (OrderRef{1} << 40U) ? r : next);
+      if (ref.contains(r)) {
+        continue;
+      }
+      const auto slot = static_cast<std::uint32_t>(i);
+      idx.insert(r, slot);
+      ref[r] = slot;
+      live.push_back(r);
+    } else {
+      const std::size_t k = *rc::gen::inRange<std::size_t>(0, live.size());
+      idx.erase(live[k]);
+      ref.erase(live[k]);
+      live[k] = live.back();
+      live.pop_back();
+    }
+    const OrderRef probe = *rc::gen::inRange<OrderRef>(0, next + 10);
+    RC_ASSERT(idx.find(probe) == (ref.contains(probe) ? ref[probe] : kNoSlot));
+  }
+  for (const auto& [r, s] : ref) {
+    RC_ASSERT(idx.find(r) == s);
+  }
+}
+
+RC_GTEST_PROP(RefIndexProperties, HashMatchesMap, ()) { index_matches_map<HashRefIndex>(); }
+RC_GTEST_PROP(RefIndexProperties, PagedMatchesMap, ()) { index_matches_map<PagedRefIndex>(); }
+
+TEST(PagedRefIndex, ReleasesEmptiedPagesBehindTheFrontier) {
+  PagedRefIndex idx;
+  for (OrderRef r = 0; r < 4 * PagedRefIndex::kPageSize; ++r) {
+    idx.insert(r, static_cast<std::uint32_t>(r));
+  }
+  const auto full = idx.memory_bytes();
+  for (OrderRef r = 0; r < 3 * PagedRefIndex::kPageSize; ++r) {
+    idx.erase(r);
+  }
+  EXPECT_LT(idx.memory_bytes(), full / 2);
+  EXPECT_EQ(idx.find(3 * PagedRefIndex::kPageSize + 5), 3 * PagedRefIndex::kPageSize + 5);
+  EXPECT_EQ(idx.find(5), kNoSlot);
 }
 
 }  // namespace

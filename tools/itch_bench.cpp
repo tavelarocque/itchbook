@@ -157,6 +157,14 @@ int run(const std::string& path, const itch::StreamLimits& limits, const Options
   std::printf("orphans\t%llu\n", static_cast<ull>(s.orphans()));
   std::printf("anomalies\t%llu\n", static_cast<ull>(s.anomalies()));
   std::printf("max_live_orders\t%llu\n", static_cast<ull>(s.max_live_orders));
+  if constexpr (std::is_same_v<BookT, book::FastBook>) {
+    std::printf("order_index\t%s\n", BookT::Index::name());
+    if constexpr (requires { h->book.index().peak_memory_bytes(); }) {
+      std::printf("order_index_peak_mb\t%.1f\n", static_cast<double>(h->book.index().peak_memory_bytes()) / 1e6);
+    } else {
+      std::printf("order_index_mb\t%.1f\n", static_cast<double>(h->book.index().memory_bytes()) / 1e6);
+    }
+  }
   std::printf("wall_s\t%.3f\n", wall);
   std::printf("input_wait_s\t%.3f\n", waited);
   std::printf("busy_s\t%.3f\n", busy);

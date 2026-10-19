@@ -7,75 +7,9 @@
 
 namespace itchbook::book {
 
-FastBook::FastBook(std::size_t expected_orders) : books_(std::size_t{std::numeric_limits<Locate>::max()} + 1) {
-  // Keep the index at most half full: size = next power of two >= 2 * expected.
-  const std::size_t size = std::bit_ceil(std::max<std::size_t>(expected_orders * 2, 1024));
-  index_.assign(size, Bucket{0, kNil});
-  mask_ = size - 1;
-  shift_ = static_cast<unsigned>(64 - std::countr_zero(size));
+FastBook::FastBook(std::size_t expected_orders)
+    : books_(std::size_t{std::numeric_limits<Locate>::max()} + 1), index_(expected_orders) {
   slots_.reserve(expected_orders);
-}
-
-// ---- order index ---------------------------------------------------------------
-
-std::uint32_t FastBook::find(OrderRef ref) const noexcept {
-  for (std::size_t i = home(ref);; i = (i + 1) & mask_) {
-    const Bucket& b = index_[i];
-    if (b.slot == kNil) {
-      return kNil;
-    }
-    if (b.ref == ref) {
-      return b.slot;
-    }
-  }
-}
-
-void FastBook::index_insert(OrderRef ref, std::uint32_t slot) {
-  if ((live_ + 1) * 2 > index_.size()) {
-    grow_index();
-  }
-  std::size_t i = home(ref);
-  while (index_[i].slot != kNil) {
-    i = (i + 1) & mask_;
-  }
-  index_[i] = {ref, slot};
-}
-
-void FastBook::index_erase(OrderRef ref) {
-  std::size_t i = home(ref);
-  while (index_[i].ref != ref || index_[i].slot == kNil) {
-    i = (i + 1) & mask_;
-  }
-  // Backward-shift deletion: pull later entries of the same probe run into the
-  // hole when that brings them no further from their home bucket than before.
-  for (std::size_t j = (i + 1) & mask_;; j = (j + 1) & mask_) {
-    if (index_[j].slot == kNil) {
-      break;
-    }
-    const std::size_t dist_home = (j - home(index_[j].ref)) & mask_;
-    const std::size_t dist_hole = (j - i) & mask_;
-    if (dist_home >= dist_hole) {
-      index_[i] = index_[j];
-      i = j;
-    }
-  }
-  index_[i].slot = kNil;
-}
-
-void FastBook::grow_index() {
-  const std::vector<Bucket> old = std::move(index_);
-  index_.assign(old.size() * 2, Bucket{0, kNil});
-  mask_ = index_.size() - 1;
-  --shift_;
-  for (const Bucket& b : old) {
-    if (b.slot != kNil) {
-      std::size_t i = home(b.ref);
-      while (index_[i].slot != kNil) {
-        i = (i + 1) & mask_;
-      }
-      index_[i] = b;
-    }
-  }
 }
 
 // ---- levels -----------------------------------------------------------------
@@ -154,7 +88,7 @@ void FastBook::insert(OrderRef ref, Locate locate, Side side, Shares shares, Pri
   lvl.tail = s;
   ++lvl.count;
   lvl.shares += shares;
-  index_insert(ref, s);
+  index_.insert(ref, s);
   ++live_;
   stats_.max_live_orders = std::max<std::uint64_t>(stats_.max_live_orders, live_);
 }
@@ -178,7 +112,7 @@ void FastBook::erase(std::uint32_t s) {
     v.erase(v.begin() + (lvl - v.data()));
     --level_count_;
   }
-  index_erase(o.ref);
+  index_.erase(o.ref);
   slots_[s].next = free_;
   free_ = s;
   --live_;
@@ -293,9 +227,9 @@ void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const
   }
   const OrderRef ref = itch::load_be64(p + 11);
   if (stage == 0) {
-    __builtin_prefetch(&index_[home(ref)]);
+    index_.prefetch(ref);
     if (type == 'U' && len >= 27) {
-      __builtin_prefetch(&index_[home(itch::load_be64(p + 19))]);
+      index_.prefetch(itch::load_be64(p + 19));
     }
     return;
   }
@@ -306,9 +240,9 @@ void FastBook::prefetch(const std::uint8_t* p, std::size_t len, int stage) const
     }
     return;
   }
-  const Bucket& b = index_[home(ref)];
-  if (b.slot != kNil && b.ref == ref) {
-    __builtin_prefetch(&slots_[b.slot]);
+  const std::uint32_t s = index_.find(ref);  // stage 0 brought the entry into cache
+  if (s != kNil) {
+    __builtin_prefetch(&slots_[s]);
   }
 }
 

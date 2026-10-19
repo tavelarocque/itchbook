@@ -6,8 +6,9 @@
 //   * orders live in one pooled array and are addressed by 32-bit index; a
 //     free list recycles slots, so the hot path never allocates once the pool
 //     has grown to the day's peak;
-//   * order reference -> slot index is an open-addressing hash table with
-//     linear probing and backward-shift deletion (no tombstones);
+//   * order reference -> slot index is a paged direct-mapped table
+//     (PagedRefIndex; -DITCHBOOK_HASH_INDEX selects the open-addressing hash
+//     table instead, for comparison);
 //   * each side of each symbol's book is a vector of price levels sorted with
 //     the BEST price at the BACK, so the busiest levels sit where inserting
 //     and erasing moves the fewest elements;
@@ -22,6 +23,7 @@
 #include <optional>
 #include <vector>
 
+#include "itchbook/book/ref_index.hpp"
 #include "itchbook/book/reference_book.hpp"
 #include "itchbook/book/types.hpp"
 
@@ -29,6 +31,11 @@ namespace itchbook::book {
 
 class FastBook {
  public:
+#if defined(ITCHBOOK_HASH_INDEX)
+  using Index = HashRefIndex;
+#else
+  using Index = PagedRefIndex;
+#endif
   using OrderInfo = ReferenceBook::OrderInfo;
 
   explicit FastBook(std::size_t expected_orders = std::size_t{1} << 21U);
@@ -47,6 +54,7 @@ class FastBook {
   [[nodiscard]] bool at_head(OrderRef ref) const;
   [[nodiscard]] std::uint64_t checksum() const;
   [[nodiscard]] const BookStats& stats() const noexcept { return stats_; }
+  [[nodiscard]] const Index& index() const noexcept { return index_; }
 
   // Software prefetch for an ITCH message that will be applied soon (see
   // itch::Prefetching). Stage 0: the hash bucket of every order reference the
@@ -78,18 +86,8 @@ class FastBook {
     Side_ sides[2];
   };
 
-  // ---- order index: open addressing ---------------------------------------
-  struct Bucket {
-    OrderRef ref;
-    std::uint32_t slot;  // kNil = empty
-  };
-  [[nodiscard]] std::size_t home(OrderRef ref) const noexcept {
-    return static_cast<std::size_t>((ref * 0x9E3779B97F4A7C15ULL) >> shift_);
-  }
-  [[nodiscard]] std::uint32_t find(OrderRef ref) const noexcept;
-  void index_insert(OrderRef ref, std::uint32_t slot);
-  void index_erase(OrderRef ref);
-  void grow_index();
+  // ---- order index ----------------------------------------------------------
+  [[nodiscard]] std::uint32_t find(OrderRef ref) const noexcept { return index_.find(ref); }
 
   // ---- levels ------------------------------------------------------------
   // "Better" means closer to the back of the vector.
@@ -106,9 +104,7 @@ class FastBook {
   std::vector<SymbolBook> books_;
   std::vector<Slot> slots_;
   std::uint32_t free_ = kNil;
-  std::vector<Bucket> index_;
-  std::size_t mask_ = 0;
-  unsigned shift_ = 0;
+  Index index_;
   std::size_t live_ = 0;
   std::size_t level_count_ = 0;
   BookStats stats_;
