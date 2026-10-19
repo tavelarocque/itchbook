@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "itchbook/book/fast_book.hpp"
 #include "itchbook/book/reference_book.hpp"
 #include "itchbook/itch/messages.hpp"
 
@@ -63,13 +64,16 @@ struct Snapshot {
   std::vector<Top> tops;
 };
 
+struct BuilderOptions {
+  std::vector<std::uint64_t> snapshot_times_ns;  // ascending
+  std::vector<std::string> top_symbols;          // symbols whose top levels each snapshot records
+  std::size_t top_depth = 5;
+};
+
+template <class BookT = ReferenceBook>
 class BookBuilder {
  public:
-  struct Options {
-    std::vector<std::uint64_t> snapshot_times_ns;  // ascending
-    std::vector<std::string> top_symbols;          // symbols whose top levels each snapshot records
-    std::size_t top_depth = 5;
-  };
+  using Options = BuilderOptions;
 
   explicit BookBuilder(Options opts) : opts_(std::move(opts)) { trading_.fill('?'); }
 
@@ -86,7 +90,7 @@ class BookBuilder {
     }
   }
 
-  [[nodiscard]] const ReferenceBook& book() const noexcept { return book_; }
+  [[nodiscard]] const BookT& book() const noexcept { return book_; }
   [[nodiscard]] const CrossStats& cross_stats() const noexcept { return cross_; }
   [[nodiscard]] const ExecStats& exec_stats() const noexcept { return exec_; }
   [[nodiscard]] const std::vector<Snapshot>& snapshots() const noexcept { return snaps_; }
@@ -216,7 +220,7 @@ class BookBuilder {
   void handle(const M& /*m*/) {}  // P, Q, B, I, L, ...: no effect on the displayed book
 
   Options opts_;
-  ReferenceBook book_;
+  BookT book_;
   CrossStats cross_;
   ExecStats exec_;
   static constexpr std::uint64_t kNever = UINT64_MAX;

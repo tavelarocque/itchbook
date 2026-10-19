@@ -12,6 +12,7 @@
 #include <tuple>
 #include <vector>
 
+#include "itchbook/book/fast_book.hpp"
 #include "itchbook/book/reference_book.hpp"
 
 namespace itchbook::book {
@@ -295,6 +296,100 @@ RC_GTEST_PROP(ReferenceBookProperties, MatchesBruteForceModel, ()) {
     RC_ASSERT(info->rank == rank);
     RC_ASSERT(info->shares_ahead == ahead);
   }
+}
+
+}  // namespace
+}  // namespace itchbook::book
+
+// ---- FastBook: differential testing against ReferenceBook ----------------------
+
+namespace itchbook::book {
+namespace {
+
+void expect_same(const ReferenceBook& r, const FastBook& f, Locate max_locate) {
+  for (Locate l = 0; l <= max_locate; ++l) {
+    for (const Side s : {Side::buy, Side::sell}) {
+      RC_ASSERT(r.levels(l, s) == f.levels(l, s));
+      RC_ASSERT(r.best(l, s) == f.best(l, s));
+    }
+  }
+  RC_ASSERT(r.live_orders() == f.live_orders());
+  RC_ASSERT(r.level_count() == f.level_count());
+}
+
+bool same_stats(const BookStats& a, const BookStats& b) {
+  return a.adds == b.adds && a.executes == b.executes && a.cancels == b.cancels && a.deletes == b.deletes &&
+         a.replaces == b.replaces && a.orphan_execute == b.orphan_execute && a.orphan_cancel == b.orphan_cancel &&
+         a.orphan_delete == b.orphan_delete && a.orphan_replace == b.orphan_replace &&
+         a.duplicate_add == b.duplicate_add && a.duplicate_replace == b.duplicate_replace && a.bad_side == b.bad_side &&
+         a.over_execute == b.over_execute && a.over_cancel == b.over_cancel && a.locate_mismatch == b.locate_mismatch &&
+         a.replace_to_zero == b.replace_to_zero && a.executed_at_head == b.executed_at_head &&
+         a.executed_behind_head == b.executed_behind_head && a.cancel_to_zero == b.cancel_to_zero &&
+         a.max_live_orders == b.max_live_orders;
+}
+
+// Same event stream into both books. `n_prices` large forces the long-book
+// binary-search path; a tiny expected size forces the hash index to grow.
+void differential(int n_ops, Price n_prices, std::size_t expected) {
+  constexpr Locate kMaxLocate = 3;
+  ReferenceBook r;
+  FastBook f(expected);
+  OrderRef next_ref = 1;
+  std::vector<OrderRef> issued;
+  for (int i = 0; i < n_ops; ++i) {
+    const int kind = *rc::gen::inRange(0, 100);
+    const auto l = *rc::gen::inRange<Locate>(1, kMaxLocate + 1);
+    const auto price = *rc::gen::inRange<Price>(1, n_prices + 1);
+    const auto shares = *rc::gen::inRange<Shares>(0, 400);
+    const OrderRef target = (!issued.empty() && *rc::gen::inRange(0, 10) < 9)
+                                ? issued[*rc::gen::inRange<std::size_t>(0, issued.size())]
+                                : next_ref + 1000;
+    const auto header = *rc::gen::inRange<Locate>(1, kMaxLocate + 1);
+    if (kind < 45) {
+      const char side = *rc::gen::element('B', 'S', 'B', 'S', 'X');
+      r.add(l, next_ref, side, shares, price);
+      f.add(l, next_ref, side, shares, price);
+      issued.push_back(next_ref++);
+    } else if (kind < 60) {
+      RC_ASSERT(r.at_head(target) == f.at_head(target));
+      r.execute(header, target, shares);
+      f.execute(header, target, shares);
+    } else if (kind < 70) {
+      r.cancel(header, target, shares);
+      f.cancel(header, target, shares);
+    } else if (kind < 85) {
+      r.remove(header, target);
+      f.remove(header, target);
+    } else {
+      const OrderRef nr = *rc::gen::inRange(0, 20) == 0 && !issued.empty() ? issued.back() : next_ref;
+      r.replace(header, target, nr, shares, price);
+      f.replace(header, target, nr, shares, price);
+      issued.push_back(next_ref++);
+    }
+    expect_same(r, f, kMaxLocate);
+  }
+  RC_ASSERT(r.checksum() == f.checksum());
+  RC_ASSERT(same_stats(r.stats(), f.stats()));
+  for (const OrderRef ref : issued) {
+    const auto a = r.order(ref);
+    const auto b = f.order(ref);
+    RC_ASSERT(a.has_value() == b.has_value());
+    if (a) {
+      RC_ASSERT(a->rank == b->rank);
+      RC_ASSERT(a->shares_ahead == b->shares_ahead);
+      RC_ASSERT(a->shares == b->shares);
+    }
+  }
+}
+
+RC_GTEST_PROP(FastBookProperties, MatchesReferenceOnCrowdedLevels, ()) {
+  differential(*rc::gen::inRange(1, 500), 6, 1024);
+}
+RC_GTEST_PROP(FastBookProperties, MatchesReferenceOnDeepBooks, ()) {
+  differential(*rc::gen::inRange(1, 800), 200, 1024);
+}
+RC_GTEST_PROP(FastBookProperties, MatchesReferenceWhileIndexGrows, ()) {
+  differential(*rc::gen::inRange(600, 1500), 40, 1);
 }
 
 }  // namespace

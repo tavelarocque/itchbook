@@ -27,6 +27,7 @@ find_package(ZLIB REQUIRED)
 add_library(itchbook_core
   src/source.cpp
   src/reference_book.cpp
+  src/fast_book.cpp
 )
 add_library(itchbook::core ALIAS itchbook_core)
 target_include_directories(itchbook_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

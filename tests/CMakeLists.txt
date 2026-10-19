@@ -10,7 +10,7 @@ target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main ra
 itchbook_set_warnings(itchbook_tests)
 
 include(GoogleTest)
-gtest_discover_tests(itchbook_tests DISCOVERY_TIMEOUT 60)
+gtest_discover_tests(itchbook_tests DISCOVERY_TIMEOUT 60 PROPERTIES TIMEOUT 300)
 
 # Cross-check: the C++ fingerprint and the independent Python reference must
 # agree byte-for-byte on a synthetic stream that contains every message type.

@@ -7,7 +7,7 @@
 // diagnostics that have no Python counterpart: crossed/locked-book episodes by
 // session phase, end-of-day residue and timing.
 //
-//   itch-book [--every MINUTES] [--symbols AAPL,MSFT] [--depth N] [--max-messages N] FILE|-
+//   itch-book [--engine fast|reference] [--every MINUTES] [--symbols AAPL,MSFT] [--depth N] [--max-messages N] FILE|-
 
 #include <algorithm>
 #include <charconv>
@@ -17,6 +17,7 @@
 #include <exception>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -78,9 +79,10 @@ void print_stats(const book::BookStats& s) {
   }
 }
 
-int run(const std::string& path, book::BookBuilder::Options opts, const itch::StreamLimits& limits) {
+template <class BookT>
+int run(const std::string& path, book::BuilderOptions opts, const itch::StreamLimits& limits) {
   auto src = io::open_source(path);
-  book::BookBuilder b(std::move(opts));
+  book::BookBuilder<BookT> b(std::move(opts));
   const auto t0 = std::chrono::steady_clock::now();
   const auto st = itch::parse_stream(*src, b, limits);
   b.finish();
@@ -110,8 +112,9 @@ int run(const std::string& path, book::BookBuilder::Options opts, const itch::St
 
   // ---- diagnostics (stderr) --------------------------------------------------
   const auto& s = bk.stats();
-  std::fprintf(stderr, "itch-book: %s\n  %.1f s, %.0f ns/msg (includes decompression), %zu symbols\n", path.c_str(),
-               secs, secs * 1e9 / static_cast<double>(st.messages != 0 ? st.messages : 1), b.symbol_count());
+  std::fprintf(stderr, "itch-book (%s): %s\n  %.1f s, %.0f ns/msg (includes decompression), %zu symbols\n",
+               std::is_same_v<BookT, book::FastBook> ? "fast" : "reference", path.c_str(), secs,
+               secs * 1e9 / static_cast<double>(st.messages != 0 ? st.messages : 1), b.symbol_count());
   std::fprintf(stderr, "  orphans %llu, anomalies %llu, max live orders %llu, end live %zu, end levels %zu\n",
                static_cast<ull>(s.orphans()), static_cast<ull>(s.anomalies()), static_cast<ull>(s.max_live_orders),
                bk.live_orders(), bk.level_count());
@@ -155,7 +158,9 @@ int run(const std::string& path, book::BookBuilder::Options opts, const itch::St
 }
 
 void usage() {
-  std::fprintf(stderr, "usage: itch-book [--every MINUTES] [--symbols A,B] [--depth N] [--max-messages N] FILE|-\n");
+  std::fprintf(stderr,
+               "usage: itch-book [--engine fast|reference] [--every MINUTES] [--symbols A,B] [--depth N] "
+               "[--max-messages N] FILE|-\n");
 }
 
 template <class T>
@@ -166,7 +171,8 @@ bool parse_num(std::string_view v, T& out) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  book::BookBuilder::Options opts;
+  book::BuilderOptions opts;
+  bool fast = true;
   opts.top_symbols = {"AAPL", "MSFT", "SPY", "QQQ", "TSLA", "AMD", "ZVZZT"};
   itch::StreamLimits limits;
   std::uint64_t every_min = 30;
@@ -179,6 +185,13 @@ int main(int argc, char** argv) {
         usage();
         return 1;
       }
+    } else if (a == "--engine" && has_value) {
+      const std::string_view e = argv[++i];
+      if (e != "fast" && e != "reference") {
+        usage();
+        return 1;
+      }
+      fast = e == "fast";
     } else if (a == "--symbols" && has_value) {
       opts.top_symbols = split(argv[++i], ',');
     } else if (a == "--depth" && has_value) {
@@ -208,7 +221,8 @@ int main(int argc, char** argv) {
     opts.snapshot_times_ns.push_back(t);
   }
   try {
-    return run(path, std::move(opts), limits);
+    return fast ? run<book::FastBook>(path, std::move(opts), limits)
+                : run<book::ReferenceBook>(path, std::move(opts), limits);
   } catch (const std::exception& e) {
     std::fprintf(stderr, "itch-book: %s\n", e.what());
     return 1;
