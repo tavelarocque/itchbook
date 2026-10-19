@@ -1,0 +1,142 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "ITCHBOOK_WERROR": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "inherits": "base",
+      "displayName": "Debug with tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ITCHBOOK_BUILD_BENCH": "OFF"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "displayName": "Release, portable (CI)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "native",
+      "inherits": "base",
+      "displayName": "Release tuned for this machine (benchmarks)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ITCHBOOK_NATIVE": "ON"
+      }
+    },
+    {
+      "name": "asan",
+      "inherits": "base",
+      "displayName": "Debug + AddressSanitizer + UndefinedBehaviorSanitizer",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "ITCHBOOK_SANITIZE": "address,undefined",
+        "ITCHBOOK_BUILD_BENCH": "OFF"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "base",
+      "displayName": "ThreadSanitizer (for the SPSC ring)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "ITCHBOOK_SANITIZE": "thread",
+        "ITCHBOOK_BUILD_BENCH": "OFF"
+      }
+    },
+    {
+      "name": "fuzz",
+      "inherits": "base",
+      "displayName": "libFuzzer targets (Linux clang or Homebrew LLVM)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer-no-link",
+        "ITCHBOOK_SANITIZE": "address,undefined",
+        "ITCHBOOK_BUILD_FUZZ": "ON",
+        "ITCHBOOK_BUILD_TESTS": "OFF",
+        "ITCHBOOK_BUILD_BENCH": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "native",
+      "configurePreset": "native"
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan"
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz"
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "Prefetch"
+        }
+      }
+    }
+  ]
+}

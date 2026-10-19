@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc-13 release, preset: release, cc: gcc-13, cxx: g++-13}
+          - {name: clang-18 release, preset: release, cc: clang-18, cxx: clang++-18}
+          - {name: clang-18 asan+ubsan, preset: asan, cc: clang-18, cxx: clang++-18}
+          - {name: clang-18 tsan, preset: tsan, cc: clang-18, cxx: clang++-18}
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev libclang-rt-18-dev
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} -j 4
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev
+      - name: Build itch-stats
+        run: cmake --preset release -DITCHBOOK_BUILD_TESTS=OFF -DITCHBOOK_BUILD_BENCH=OFF && cmake --build --preset release --target itch-stats itch-book
+      - name: Lint
+        run: uv run ruff check tools && uv run ruff format --check tools
+      - name: Reference parser and mutation tests
+        run: ITCH_STATS=build/release/itch-stats ITCH_BOOK=build/release/itch-book uv run pytest -q
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev clang-format-18 clang-tidy-18
+      - name: clang-format
+        run: git ls-files '*.cpp' '*.hpp' | xargs clang-format-18 --dry-run --Werror
+      - name: clang-tidy
+        run: |
+          CC=clang-18 CXX=clang++-18 cmake --preset release -DITCHBOOK_BUILD_TESTS=OFF -DITCHBOOK_BUILD_BENCH=OFF
+          clang-tidy-18 -p build/release --quiet src/*.cpp tools/*.cpp
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev libclang-rt-18-dev
+      - name: Build
+        run: cmake --preset fuzz -DCMAKE_CXX_COMPILER=clang++-18 && cmake --build --preset fuzz
+      - name: Fuzz for 120 seconds
+        run: mkdir -p corpus && ./build/fuzz/fuzz/fuzz_stream -max_total_time=120 -max_len=4096 corpus

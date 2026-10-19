@@ -1,0 +1,28 @@
+{
+  "01302020": {
+    "source": "Stefan Jansen, Machine Learning for Algorithmic Trading, 03_market_microstructure/01_itch_parser.ipynb (https://github.com/stefan-jansen/machine-learning-for-trading)",
+    "note": "That parser does not decode h, N, B, W or O, so those types are absent here. Its two outputs disagree on S (6 vs 5).",
+    "counts": {
+      "A": 184735355,
+      "D": 180285101,
+      "U": 36777372,
+      "E": 8415610,
+      "X": 4990972,
+      "I": 4025192,
+      "F": 1875350,
+      "P": 1779727,
+      "L": 216802,
+      "C": 139474,
+      "Q": 17835,
+      "Y": 9068,
+      "H": 8921,
+      "R": 8916,
+      "S": 6,
+      "J": 5,
+      "K": 2,
+      "V": 1
+    },
+    "disputed": {"S": "notebook prints 6 in one cell and 5 in another"},
+    "total_reported": 423285709
+  }
+}
