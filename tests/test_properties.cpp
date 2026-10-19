@@ -95,7 +95,7 @@ namespace {
 // A handler that also asks for prefetches: delivery must be unchanged, and
 // every prefetch must describe a complete frame that is about to be decoded.
 struct PrefetchRecorder : test::Recorder {
-  std::uint64_t prefetches[2] = {0, 0};
+  std::uint64_t prefetches[kPrefetchStages] = {};
   std::uint64_t bad = 0;
   void prefetch(const std::uint8_t* p, std::size_t len, int stage) {
     ++prefetches[stage];
@@ -130,8 +130,9 @@ RC_GTEST_PROP(StreamProperties, PrefetchingDoesNotChangeDelivery, ()) {
   RC_ASSERT(rec.payloads == expected);
   RC_ASSERT(rec.bad == 0U);
   // Every frame is announced at least once per stage before it is decoded.
-  RC_ASSERT(rec.prefetches[0] >= n);
-  RC_ASSERT(rec.prefetches[1] >= n);
+  for (const auto count : rec.prefetches) {
+    RC_ASSERT(count >= n);
+  }
 }
 
 }  // namespace

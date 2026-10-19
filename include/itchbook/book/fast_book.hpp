@@ -61,8 +61,10 @@ class FastBook {
   // Software prefetch for an ITCH message that will be applied soon (see
   // itch::Prefetching). Stage 0: the index entry of every order reference the
   // message names, and for adds the symbol's book header. Stage 1: the order
-  // slot the index entry points to, and for adds the best price level of the
-  // symbol's side. Reads only bytes within `len`.
+  // slot the index entry points to, and for adds the best (price, level) of
+  // the symbol's side. Stage 2: the slot's price level and its queue
+  // neighbours (what unlinking touches), and for adds the best level and its
+  // tail order. Reads only bytes within `len`.
   void prefetch(const std::uint8_t* p, std::size_t len, int stage) const noexcept;
 
  private:
