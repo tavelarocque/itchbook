@@ -1,0 +1,14 @@
+/build/
+/target/
+/.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.cache/
+compile_commands.json
+# Market data never goes in git (multi-GB, and NASDAQ's terms).
+*.NASDAQ_ITCH50*
+*-v50.txt*
+/corpus/
+crash-*
