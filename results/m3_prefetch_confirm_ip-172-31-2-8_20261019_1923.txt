@@ -1,0 +1,47 @@
+# prefetch confirm, 2026-10-19T19:23:25+00:00, itchbook 75b02fd, taskset -c 2, 5 interleaved rounds
+### round 1
+## cpptrader market_manager_optimized
+ITCH message latency: 75 ns
+## itchbook fast, prefetch both stages
+ns_per_message	100.6
+## itchbook fast, no lookahead
+ns_per_message	94.0
+### round 2
+## cpptrader market_manager_optimized
+ITCH message latency: 78 ns
+## itchbook fast, prefetch both stages
+ns_per_message	105.4
+## itchbook fast, no lookahead
+ns_per_message	96.5
+### round 3
+## cpptrader market_manager_optimized
+ITCH message latency: 82 ns
+## itchbook fast, prefetch both stages
+ns_per_message	108.4
+## itchbook fast, no lookahead
+ns_per_message	90.7
+### round 4
+## cpptrader market_manager_optimized
+ITCH message latency: 75 ns
+## itchbook fast, prefetch both stages
+ns_per_message	99.8
+## itchbook fast, no lookahead
+ns_per_message	91.8
+### round 5
+## cpptrader market_manager_optimized
+ITCH message latency: 77 ns
+## itchbook fast, prefetch both stages
+ns_per_message	104.5
+## itchbook fast, no lookahead
+ns_per_message	91.2
+## itchbook fast, no lookahead, per-update latency
+ns_per_message	169.7
+timer	rdtsc	0.42 ns/tick	overhead 12.5 ns
+update_mean_ns	104.1
+update_p50_ns	54
+update_p90_ns	242
+update_p99_ns	517
+update_p99.9_ns	743
+update_p99.99_ns	11093
+update_max_ns	5872321
+DONE

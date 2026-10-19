@@ -1,0 +1,315 @@
+# itchbook vs CppTrader, 2026-10-19T17:36:39+0000
+# host: ip-172-31-2-8; Intel(R) Xeon(R) Platinum 8488C; 8 logical CPUs; 30 GB RAM; Linux 6.17.0-1017-aws
+# compiler: c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# itchbook e4fa86e, release preset; CppTrader 39421f50ae673be34235e24eac95827220763652, Release
+#   CppTrader optimized: orders array resized 300000000 -> 500000000 (max order reference 494466152)
+#   CppTrader module Catch2: 08092139
+#   CppTrader module CppBenchmark: 6e29e543
+#   CppTrader module CppCommon: 9eba9ba6
+#   CppTrader module cpp-optparse: b90dd73
+# file: /home/ubuntu/itch-data/01302020.NASDAQ_ITCH50 (12952050754 bytes); taskset -c 2; 3 interleaved rounds
+### round 1
+## cpptrader itch_handler (parse only)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 7.274 s
+Total ITCH messages: 423285709
+ITCH message latency: 17 ns
+ITCH message throughput: 58186073 msg/s
+## cpptrader market_manager (L3, time priority)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 2:13.310 m
+Total ITCH messages: 423285709
+ITCH message latency: 314 ns
+ITCH message throughput: 3175176 msg/s
+Total market updates: 916566126
+Market update latency: 145 ns
+Market update throughput: 6875400 upd/s
+
+Market statistics: 
+Max symbols: 8915
+Max order books: 8915
+Max order book levels: 4264
+Max order book orders: 3377
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## cpptrader market_manager_optimized (aggregated levels)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 33.006 s
+Total ITCH messages: 423285709
+ITCH message latency: 77 ns
+ITCH message throughput: 12824160 msg/s
+Total market updates: 916566128
+Market update latency: 36 ns
+Market update throughput: 27768930 upd/s
+
+Market statistics: 
+Max symbols: 8916
+Max order books: 8916
+Max order book levels: 43
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## itchbook fast (L3, time priority)
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	on
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	65.208
+input_wait_s	0.000
+busy_s	65.208
+ns_per_message	154.1
+messages_per_s	6491345
+## itchbook fast, no prefetch
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	off
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	73.223
+input_wait_s	0.000
+busy_s	73.223
+ns_per_message	173.0
+messages_per_s	5780811
+### round 2
+## cpptrader itch_handler (parse only)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 7.321 s
+Total ITCH messages: 423285709
+ITCH message latency: 17 ns
+ITCH message throughput: 57810896 msg/s
+## cpptrader market_manager (L3, time priority)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 2:13.550 m
+Total ITCH messages: 423285709
+ITCH message latency: 315 ns
+ITCH message throughput: 3169483 msg/s
+Total market updates: 916566126
+Market update latency: 145 ns
+Market update throughput: 6863073 upd/s
+
+Market statistics: 
+Max symbols: 8915
+Max order books: 8915
+Max order book levels: 4264
+Max order book orders: 3377
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## cpptrader market_manager_optimized (aggregated levels)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 32.133 s
+Total ITCH messages: 423285709
+ITCH message latency: 75 ns
+ITCH message throughput: 13172573 msg/s
+Total market updates: 916566128
+Market update latency: 35 ns
+Market update throughput: 28523370 upd/s
+
+Market statistics: 
+Max symbols: 8916
+Max order books: 8916
+Max order book levels: 43
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## itchbook fast (L3, time priority)
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	on
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	67.043
+input_wait_s	0.000
+busy_s	67.043
+ns_per_message	158.4
+messages_per_s	6313690
+## itchbook fast, no prefetch
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	off
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	70.706
+input_wait_s	0.000
+busy_s	70.706
+ns_per_message	167.0
+messages_per_s	5986570
+### round 3
+## cpptrader itch_handler (parse only)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 7.301 s
+Total ITCH messages: 423285709
+ITCH message latency: 17 ns
+ITCH message throughput: 57974725 msg/s
+## cpptrader market_manager (L3, time priority)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 2:13.052 m
+Total ITCH messages: 423285709
+ITCH message latency: 314 ns
+ITCH message throughput: 3181340 msg/s
+Total market updates: 916566126
+Market update latency: 145 ns
+Market update throughput: 6888749 upd/s
+
+Market statistics: 
+Max symbols: 8915
+Max order books: 8915
+Max order book levels: 4264
+Max order book orders: 3377
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## cpptrader market_manager_optimized (aggregated levels)
+ITCH processing...Done!
+
+Errors: 0
+
+Processing time: 32.541 s
+Total ITCH messages: 423285709
+ITCH message latency: 76 ns
+ITCH message throughput: 13007537 msg/s
+Total market updates: 916566128
+Market update latency: 35 ns
+Market update throughput: 28166006 upd/s
+
+Market statistics: 
+Max symbols: 8916
+Max order books: 8916
+Max order book levels: 43
+Max orders: 1925638
+
+Order statistics: 
+Add order operations: 223388077
+Update order operations: 7220452
+Delete order operations: 223388077
+Execute order operations: 8555084
+## itchbook fast (L3, time priority)
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	on
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	66.306
+input_wait_s	0.000
+busy_s	66.306
+ns_per_message	156.6
+messages_per_s	6383869
+## itchbook fast, no prefetch
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	off
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	69.715
+input_wait_s	0.000
+busy_s	69.715
+ns_per_message	164.7
+messages_per_s	6071648
+## itchbook fast, per-update latency
+engine	fast
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	on
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	98.816
+input_wait_s	0.000
+busy_s	98.816
+ns_per_message	233.4
+messages_per_s	4283589
+timer	rdtsc	0.42 ns/tick	overhead 13.3 ns
+update_mean_ns	171.6
+update_p50_ns	111
+update_p90_ns	372
+update_p99_ns	643
+update_p99.9_ns	1147
+update_p99.99_ns	13333
+update_max_ns	271396
+## itchbook reference (M2)
+engine	reference
+file	/home/ubuntu/itch-data/01302020.NASDAQ_ITCH50
+prefetch	off
+input	inline
+messages	423285709
+book_updates	417219234
+orphans	0
+anomalies	0
+max_live_orders	1925638
+wall_s	142.187
+input_wait_s	0.000
+busy_s	142.187
+ns_per_message	335.9
+messages_per_s	2976968

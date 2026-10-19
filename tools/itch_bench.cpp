@@ -15,7 +15,7 @@
 // from a run without --latency.
 //
 // Software prefetching (FastBook only). Off by default: on the final engine
-// (paged index, level pool) it measured 6-18 ns per message slower than plain
+// (paged index, level pool) it measured 7-18 ns per message slower than plain
 // decode-and-apply on a Xeon 8488C, because the lookahead pass costs more
 // than the misses it hides. Kept for measurement and for the hash index:
 //   default             no lookahead: decode and apply each message in turn

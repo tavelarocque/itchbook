@@ -13,9 +13,29 @@ It is then used as ground truth for two microstructure studies:
 | M0 | Build, CI, sanitizers, test/bench/fuzz tooling, data scripts | done |
 | M1 | ITCH 5.0 parser: zero-copy views of all 23 message types, bounded-memory gzip streaming | done: 423,285,709 messages on 01302020, identical to the independent reference and the published counts |
 | M2 | L3 book (`ReferenceBook`, `itch-book`) | done: 0 orphans on 01302020, empty book at close, whole-market checksums identical to the independent Python book at 35 times of day |
-| M3 | Optimised engine, identical output, benchmarked against CppTrader on the same file and machine | next |
-| M4 | Research 1: queue-position ground truth | |
+| M3 | Optimised engine (`FastBook`), identical output, benchmarked against CppTrader on the same file and machine | done: byte-identical to the M2 book on 01302020; 92 ns/message vs about 315 for CppTrader's L3 book on one pinned Xeon core |
+| M4 | Research 1: queue-position ground truth | next |
 | M5 | Research 2: forecasting audit | |
+
+## Performance
+
+Full day 01302020 (423,285,709 messages, 12.95 GB uncompressed). The time is total processing time divided by total messages, with input read on the measured thread. The AWS m7i.2xlarge runs (Xeon Platinum 8488C) were pinned to one core with interleaved rounds. Raw output is in `results/`.
+
+| Engine | Book | Xeon 8488C, ns/msg | MacBook Air M2, ns/msg |
+|---|---|---|---|
+| CppTrader `market_manager` | L3, time priority | 309–321 | 224–254 |
+| CppTrader `market_manager_optimized` | aggregated levels only; 16 GB order array | 75–82 | can't run (8 GB RAM) |
+| itchbook `ReferenceBook` (M2 oracle) | L3, time priority | 336–356 (two runs) | |
+| **itchbook `FastBook`** | L3, time priority | **91–97** | **89–97** |
+
+Per-update latency on the Xeon (rdtsc, with the 12.5 ns timer cost included): p50 54 ns, p99 517 ns, p99.9 743 ns.
+The order index peaks at 1.96 GB.
+`docs/m3_performance.pdf` explains each design step, including why software prefetching ended up off by default.
+
+```bash
+scripts/bench_cpptrader.sh 01302020 3     # builds CppTrader at a pinned commit and runs both, interleaved
+scripts/bench_prefetch_ab.sh 01302020 3   # what each prefetch stage is worth
+```
 
 ## Build
 
@@ -58,6 +78,7 @@ The parser is verified against things it can't fake:
 
 ```bash
 build/release/itch-book ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz      # L3 book: counters, checksums, top of book
+build/release/itch-book --engine reference ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz   # same output from the M2 oracle
 python3 tools/itchref/crosscheck_book.py --itch-book build/release/itch-book --file ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz
 build/release/itch-stats --fingerprint ~/CODE/itch-data/01302020.NASDAQ_ITCH50.gz
 python3 tools/itchref/crosscheck.py --itch-stats build/release/itch-stats \
@@ -70,9 +91,14 @@ python3 tools/itchref/crosscheck.py --itch-stats build/release/itch-stats \
 include/itchbook/itch/   endian loads, message views, dispatch, field reflection, frame splitter
 include/itchbook/io/     byte sources: file/stdin, streaming gzip, memory
 src/                     source implementations
+include/itchbook/book/   ReferenceBook (oracle), FastBook, order indexes, BookBuilder
+include/itchbook/bench/  cycle-counter clock, latency histogram
 tools/itch_stats.cpp     counts, fingerprint and throughput for a file
+tools/itch_book.cpp      L3 book replay: counters, checksums, snapshots
+tools/itch_bench.cpp     book throughput and per-update latency
 tools/itchref/           independent Python reference parser and cross-checks
 tests/  bench/  fuzz/    GoogleTest + RapidCheck, Google Benchmark, libFuzzer
 docs/                    walkthroughs (one PDF per milestone)
-scripts/                 data download, public-repo sync, walkthrough renderer
+scripts/                 data download, benchmarks, public-repo sync, walkthrough renderer
+results/                 raw benchmark output
 ```

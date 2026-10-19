@@ -1,0 +1,33 @@
+# Mac final 2, Mon Oct 19 12:34:08 PDT 2026, itchbook 3c43e56, Apple M2, no pinning
+### round 1
+## cpptrader market_manager
+ITCH message latency: 237 ns
+## itchbook fast (default, no lookahead)
+ns_per_message	96.6
+## itchbook fast --prefetch
+ns_per_message	97.8
+### round 2
+## cpptrader market_manager
+ITCH message latency: 243 ns
+## itchbook fast (default, no lookahead)
+ns_per_message	88.6
+## itchbook fast --prefetch
+ns_per_message	124.2
+### round 3
+## cpptrader market_manager
+ITCH message latency: 511 ns
+## itchbook fast (default, no lookahead)
+ns_per_message	180.9
+## itchbook fast --prefetch
+ns_per_message	148.5
+## itchbook fast latency
+ns_per_message	150.1
+timer	cntvct_el0	41.67 ns/tick	overhead 0.0 ns
+update_mean_ns	134.7
+update_p50_ns	42
+update_p90_ns	250
+update_p99_ns	667
+update_p99.9_ns	7875
+update_p99.99_ns	62000
+update_max_ns	97084708
+DONE
