@@ -68,9 +68,10 @@ echo "building CppTrader $ct_rev..."
 git -C "$ct" fetch -q origin
 git -C "$ct" checkout -q -f "$ct_rev"
 if ! command -v gil >/dev/null; then
-  # Homebrew and Ubuntu 24.04 Pythons are "externally managed" (PEP 668); gil is
-  # a small pure-Python tool, so a user-level install is safe.
-  python3 -m pip install -q --user --break-system-packages gil
+  # Homebrew and Ubuntu 24.04 Pythons are "externally managed" (PEP 668) and
+  # need --break-system-packages; older pips reject that flag. gil is a small
+  # pure-Python tool, so a user-level install is safe either way.
+  python3 -m pip install -q --user gil 2>/dev/null || python3 -m pip install -q --user --break-system-packages gil
   export PATH="$(python3 -c 'import site; print(site.USER_BASE)')/bin:$PATH"
 fi
 (cd "$ct" && gil update > /dev/null)
