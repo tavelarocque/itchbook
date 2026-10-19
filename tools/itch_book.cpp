@@ -127,6 +127,20 @@ int run(const std::string& path, book::BookBuilder::Options opts, const itch::St
                  static_cast<ull>(c.locked_episodes[p][0]), static_cast<ull>(c.crossed_updates[p][1]),
                  static_cast<ull>(c.crossed_updates[p][0]));
   }
+  std::fprintf(stderr,
+               "    crossed while in state T: %llu symbols, max %.3f s after a resumption, %llu updates on symbols "
+               "never resumed\n",
+               static_cast<ull>(c.symbols_crossed_in_trading), static_cast<double>(c.max_crossed_after_resume_ns) / 1e9,
+               static_cast<ull>(c.crossed_in_trading_never_halted));
+  const auto& x = b.exec_stats();
+  for (std::size_t ty = 0; ty < 2; ++ty) {
+    std::fprintf(stderr, "  %s executions behind head of queue:", ty == 0 ? "E" : "C");
+    for (std::size_t p = 0; p < 3; ++p) {
+      std::fprintf(stderr, "  %s %llu/%llu", book::kPhaseName[p], static_cast<ull>(x.behind_head[ty][p]),
+                   static_cast<ull>(x.total[ty][p]));
+    }
+    std::fprintf(stderr, "\n");
+  }
   for (const auto& e : c.first_crossed) {
     const auto sym = b.symbol(e.locate);
     std::fprintf(stderr, "    crossed: %s %.*s bid %u ask %u phase %s state %c\n", hms(e.ts).c_str(),

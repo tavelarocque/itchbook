@@ -160,6 +160,16 @@ std::vector<LevelInfo> ReferenceBook::levels(Locate locate, Side side, std::size
   return out;
 }
 
+bool ReferenceBook::at_head(OrderRef ref) const {
+  const auto it = orders_.find(ref);
+  if (it == orders_.end()) {
+    return false;
+  }
+  const Order& o = it->second;
+  return with_side(books_[o.locate], o.side,
+                   [&](const auto& m) { return m.find(o.price)->second.queue.begin() == o.pos; });
+}
+
 std::optional<ReferenceBook::OrderInfo> ReferenceBook::order(OrderRef ref) const {
   const auto it = orders_.find(ref);
   if (it == orders_.end()) {

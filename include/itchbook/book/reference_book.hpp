@@ -90,6 +90,8 @@ class ReferenceBook {
   };
   // O(queue length): for tests and spot checks, not the hot path.
   [[nodiscard]] std::optional<OrderInfo> order(OrderRef ref) const;
+  // O(1): is this live order first in its queue? (false if unknown)
+  [[nodiscard]] bool at_head(OrderRef ref) const;
 
   // Order-sensitive checksum of the whole market: every level's aggregate and
   // every order's position in its queue. See tools/itchref/bookref.py.

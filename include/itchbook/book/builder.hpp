@@ -4,6 +4,7 @@
 // per-symbol trading state, crossed/locked-book monitoring and scheduled
 // snapshots.
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -35,6 +36,18 @@ struct CrossStats {
     char state;
   };
   std::vector<Example> first_crossed;  // first few crossed episodes, for inspection
+  // Crossed updates while the symbol is in state T: how long after the most
+  // recent resumption (transition into T) they happened, and on how many symbols.
+  std::uint64_t max_crossed_after_resume_ns = 0;
+  std::uint64_t symbols_crossed_in_trading = 0;
+  std::uint64_t crossed_in_trading_never_halted = 0;  // crossed in T on a symbol with no resumption: real anomaly
+};
+
+struct ExecStats {
+  // Executions of orders that were not first in their queue, by message type
+  // (0 = E, 1 = C) and phase; and all executions for the denominators.
+  std::array<std::array<std::uint64_t, 3>, 2> behind_head{};
+  std::array<std::array<std::uint64_t, 3>, 2> total{};
 };
 
 struct Snapshot {
@@ -75,6 +88,7 @@ class BookBuilder {
 
   [[nodiscard]] const ReferenceBook& book() const noexcept { return book_; }
   [[nodiscard]] const CrossStats& cross_stats() const noexcept { return cross_; }
+  [[nodiscard]] const ExecStats& exec_stats() const noexcept { return exec_; }
   [[nodiscard]] const std::vector<Snapshot>& snapshots() const noexcept { return snaps_; }
   [[nodiscard]] std::string_view symbol(Locate l) const noexcept { return symbols_[l]; }
   [[nodiscard]] std::size_t symbol_count() const noexcept { return n_symbols_; }
@@ -104,6 +118,17 @@ class BookBuilder {
     const std::size_t t = trading_[l] == 'T' ? 1 : 0;
     if (state == 2) {
       ++cross_.crossed_updates[p][t];
+      if (t == 1) {
+        if (!crossed_in_trading_[l]) {
+          crossed_in_trading_[l] = true;
+          ++cross_.symbols_crossed_in_trading;
+        }
+        if (resumed_at_[l] == kNever) {
+          ++cross_.crossed_in_trading_never_halted;
+        } else {
+          cross_.max_crossed_after_resume_ns = std::max(cross_.max_crossed_after_resume_ns, ts - resumed_at_[l]);
+        }
+      }
     }
     if (state != cross_state_[l]) {
       if (state == 2) {
@@ -141,7 +166,22 @@ class BookBuilder {
       }
     }
   }
-  void handle(const itch::StockTradingAction& m) { trading_[m.stock_locate()] = m.trading_state(); }
+  void handle(const itch::StockTradingAction& m) {
+    const Locate l = m.stock_locate();
+    // A resumption is a move into T from a state seen earlier (not the
+    // start-of-day spin, where the previous state is unknown).
+    if (m.trading_state() == 'T' && trading_[l] != 'T' && trading_[l] != '?') {
+      resumed_at_[l] = m.timestamp();
+    }
+    trading_[l] = m.trading_state();
+  }
+  void count_exec(std::size_t type, OrderRef ref) {
+    const auto p = static_cast<std::size_t>(phase_);
+    ++exec_.total[type][p];
+    if (!book_.at_head(ref)) {
+      ++exec_.behind_head[type][p];
+    }
+  }
   void handle(const itch::AddOrder& m) {
     book_.add(m.stock_locate(), m.order_ref(), m.side(), m.shares(), m.price());
     check_cross(m.stock_locate(), m.timestamp());
@@ -151,10 +191,12 @@ class BookBuilder {
     check_cross(m.stock_locate(), m.timestamp());
   }
   void handle(const itch::OrderExecuted& m) {
+    count_exec(0, m.order_ref());
     book_.execute(m.stock_locate(), m.order_ref(), m.executed_shares());
     check_cross(m.stock_locate(), m.timestamp());
   }
   void handle(const itch::OrderExecutedWithPrice& m) {
+    count_exec(1, m.order_ref());
     book_.execute(m.stock_locate(), m.order_ref(), m.executed_shares());
     check_cross(m.stock_locate(), m.timestamp());
   }
@@ -176,6 +218,10 @@ class BookBuilder {
   Options opts_;
   ReferenceBook book_;
   CrossStats cross_;
+  ExecStats exec_;
+  static constexpr std::uint64_t kNever = UINT64_MAX;
+  std::vector<std::uint64_t> resumed_at_ = std::vector<std::uint64_t>(65536, kNever);
+  std::vector<bool> crossed_in_trading_ = std::vector<bool>(65536, false);
   std::vector<Snapshot> snaps_;
   std::size_t next_snap_ = 0;
   Phase phase_ = Phase::pre_open;
