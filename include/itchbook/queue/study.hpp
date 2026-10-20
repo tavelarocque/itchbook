@@ -98,6 +98,21 @@ struct CancelLocation {
   std::array<std::uint64_t, Calibration::kBins> events{};
 };
 
+// Where the queue around tracked orders goes: shares that left from ahead of
+// a tracked order and from behind it, by cause, during regular hours. Summed
+// over tracked orders, so a share counts once per tracked order it was ahead
+// of or behind.
+enum class Cause : std::uint8_t { trade, cancel, del, replace_away, replace_same };
+inline constexpr std::size_t kCauses = 5;
+inline constexpr std::array<const char*, kCauses> kCauseName = {"trade", "partial_cancel", "delete",
+                                                                "replace_to_other_price", "replace_same_price"};
+struct QueueFlow {
+  std::array<double, kCauses> ahead{};
+  std::array<double, kCauses> behind{};
+  // Same-price replaces as the L2 feed shows them: the net size change.
+  double replace_same_net_visible = 0;  // |net change| summed, for replaces by orders ahead
+};
+
 struct StudyOptions {
   std::uint64_t sample = 16;       // track 1 in `sample` eligible orders
   std::uint64_t event_sample = 0;  // of those, record evaluation points for 1 in `event_sample` (0 = none)
@@ -161,7 +176,7 @@ class QueueStudy {
       const std::uint64_t key = level_key(x.locate, x.side, x.price);
       for_tracked(key, [&](Tracked& t) {
         if (t.slot != s) {
-          other_removed(t, x, c);
+          other_removed(t, x, c, Cause::cancel);
         }
       });
       reduce(ts, s, ref, c, End::cancelled);
@@ -176,7 +191,7 @@ class QueueStudy {
       const std::uint64_t key = level_key(x.locate, x.side, x.price);
       for_tracked(key, [&](Tracked& t) {
         if (t.slot != s) {
-          other_removed(t, x, x.shares);
+          other_removed(t, x, x.shares, Cause::del);
         }
       });
       erase(ts, s, ref, End::deleted);
@@ -203,7 +218,7 @@ class QueueStudy {
     } else {
       for_tracked(old_key, [&](Tracked& t) {
         if (t.slot != s) {
-          other_removed(t, x, x.shares);
+          other_removed(t, x, x.shares, Cause::replace_away);
         }
       });
       if (shares > 0) {
@@ -227,6 +242,7 @@ class QueueStudy {
   [[nodiscard]] std::vector<OrderRecord>& records() noexcept { return records_; }
   [[nodiscard]] std::vector<EvalPoint>& eval_points() noexcept { return points_; }
   [[nodiscard]] const CancelLocation& cancel_location() const noexcept { return cancel_loc_; }
+  [[nodiscard]] const QueueFlow& queue_flow() const noexcept { return flow_; }
   [[nodiscard]] const book::FastBook& book() const noexcept { return book_; }
   [[nodiscard]] std::uint64_t verified() const noexcept { return verified_; }
   [[nodiscard]] std::uint64_t verify_failures() const noexcept { return verify_failures_; }
@@ -388,6 +404,7 @@ class QueueStudy {
       t.rec.filled += v;
       t.own -= v;
     } else {
+      flow(t, x, Cause::trade, v);
       if (x.seq < t.seq) {
         t.truth -= v;
       }
@@ -397,7 +414,14 @@ class QueueStudy {
   }
 
   // Another order x at t's level lost c shares without trading.
-  void other_removed(Tracked& t, const Ord& x, Shares c) {
+  void flow(const Tracked& t, const Ord& x, Cause c, double shares) {
+    if (active_) {
+      (x.seq < t.seq ? flow_.ahead : flow_.behind)[static_cast<std::size_t>(c)] += shares;
+    }
+  }
+
+  void other_removed(Tracked& t, const Ord& x, Shares c, Cause cause) {
+    flow(t, x, cause, c);
     if (active_) {
       const double r = t.others > 0 ? static_cast<double>(t.truth) / static_cast<double>(t.others) : 0.0;
       const std::size_t b = Calibration::bin(r);
@@ -416,8 +440,12 @@ class QueueStudy {
 
   void other_replaced_same_level(Tracked& t, const Ord& x, Shares new_shares) {
     // Truth: the old order leaves (from wherever it was); the new one joins at the back.
+    flow(t, x, Cause::replace_same, x.shares);
     if (x.seq < t.seq) {
       t.truth -= x.shares;
+      if (active_) {
+        flow_.replace_same_net_visible += std::abs(static_cast<double>(new_shares) - static_cast<double>(x.shares));
+      }
     }
     if (new_shares < x.shares) {
       l2_cancel_at(t, x.shares - new_shares);
@@ -533,6 +561,7 @@ class QueueStudy {
   std::vector<OrderRecord> records_;
   std::vector<EvalPoint> points_;
   CancelLocation cancel_loc_;
+  QueueFlow flow_;
   std::uint64_t eval_count_ = 0;
   std::uint64_t verified_ = 0;
   std::uint64_t verify_failures_ = 0;

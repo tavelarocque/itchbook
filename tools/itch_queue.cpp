@@ -331,6 +331,16 @@ int main(int argc, char** argv) {
       }
       std::fclose(f);
     }
+    const queue::QueueFlow& qf = h->study.queue_flow();
+    if (FILE* f = std::fopen((out + ".flow.tsv").c_str(), "w")) {
+      std::fprintf(f, "# shares that left the queue around tracked orders, regular hours, by cause\n");
+      std::fprintf(f, "cause\tahead\tbehind\n");
+      for (std::size_t c = 0; c < queue::kCauses; ++c) {
+        std::fprintf(f, "%s\t%.0f\t%.0f\n", queue::kCauseName[c], qf.ahead[c], qf.behind[c]);
+      }
+      std::fprintf(f, "replace_same_price_ahead_net_visible\t%.0f\t\n", qf.replace_same_net_visible);
+      std::fclose(f);
+    }
     std::printf("messages\t%llu\n", static_cast<ull>(st.messages));
     std::printf("tracked_orders\t%llu\n", static_cast<ull>(n_records));
     std::printf("eval_points_written\t%llu\n", static_cast<ull>(n_points));
