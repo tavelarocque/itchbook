@@ -280,20 +280,27 @@ def classes(preds: Path, model: str, day: str, sym: str, dead: list[float]) -> n
     return np.nan_to_num(p, nan=0).argmax(2)
 
 
-def trades(sd: SymbolDay, s: np.ndarray, h: int, theta: float, fee_ticks: np.ndarray) -> dict[str, np.ndarray]:
-    """Taker round trips at decision points spaced h apart: buy at the ask if s > theta, sell at the bid
-    if s < -theta, unwind at the opposite touch h steps later. Returns per-trade components in ticks."""
+def trades(sd: SymbolDay, e: np.ndarray, h: int, theta: float, fee_usd: float, spread: bool) -> dict[str, np.ndarray]:
+    """Taker round trips at decision points spaced h apart (so positions never overlap).
+
+    e is the expected mid move over the next h steps, in ticks. The rule trades when the expected move
+    beats the expected round-trip cost by more than theta: cross the spread now (half a spread from the
+    mid), pay the fee twice, and assume the spread on exit equals today's. Long buys at the ask and sells
+    at the bid h steps later; short the reverse. Returns per-trade components in ticks (= cents/share
+    for stocks over $1). With spread=False everything happens at the mid (frictionless)."""
     n = len(sd.raw)
     v = sd.valid()
     t = np.arange(LOOKBACK, n - h, h)
-    t = t[v[t] & v[t + h] & ~np.isnan(s[t])]
-    side = np.where(s[t] > theta, 1, np.where(s[t] < -theta, -1, 0))
-    t, side = t[side != 0], side[side != 0]
-    tick = sd.tick()[t]
+    t = t[v[t] & v[t + h] & ~np.isnan(e[t])]
+    tick = sd.tick()
     bid, ask, mid = sd.bid, sd.ask, sd.mid()
-    gross = side * (mid[t + h] - mid[t]) / tick
-    spread_cost = ((ask[t] - bid[t]) / 2 + (ask[t + h] - bid[t + h]) / 2) / tick
-    fees = 2 * fee_ticks[t]
+    fee = fee_usd / (tick[t] / 1e4)
+    cost_now = ((ask[t] - bid[t]) / tick[t] if spread else 0.0) + 2 * fee
+    go = np.abs(e[t]) - cost_now > theta
+    t, side, fee = t[go], np.sign(e[t[go]]), fee[go]
+    gross = side * (mid[t + h] - mid[t]) / tick[t]
+    spread_cost = ((ask[t] - bid[t]) / 2 + (ask[t + h] - bid[t + h]) / 2) / tick[t] if spread else np.zeros(len(t))
+    fees = 2 * fee
     return {"gross": gross, "spread": spread_cost, "fees": fees, "net": gross - spread_cost - fees}
 
 
@@ -363,59 +370,71 @@ def cmd_evaluate(a: argparse.Namespace) -> int:
     cls.to_csv(res / "m5_classification.tsv", sep="\t", index=False, float_format="%.4f")
     print(cls.to_string(index=False))
 
-    # Trading: thresholds chosen on validation to maximise total net P&L, then applied once to test.
-    def fee_ticks(sd: SymbolDay, fee: float) -> np.ndarray:
-        return fee / (sd.tick() / 1e4)
+    # Expected move in ticks for the deep models: P(class) times the symbol's mean move in that class on
+    # the training days. Ridge already predicts ticks; the oracle knows the realised move.
+    class_mean: dict[str, np.ndarray] = {}
+    for s in st.universe:
+        m_ = np.zeros((len(H_STEPS), 3))
+        for j, h in enumerate(H_STEPS):
+            ys = np.concatenate([y[ok] for y, ok in (st.load(d, s).targets(h) for d in st.train)])
+            c = to_class(ys)
+            m_[j] = [ys[c == k].mean() if np.any(c == k) else 0.0 for k in (0, 1, 2)]
+        class_mean[s] = m_
 
+    def expected(m: str, day: str, s: str, j: int, h: int) -> np.ndarray:
+        if m == "oracle":
+            return sd_of(day, s).targets(h)[0]
+        p = np.load(preds / f"{m}.{day}.{s}.npy").astype(np.float32)
+        if p.ndim == 2:
+            return p[:, j]
+        return p[:, j, :] @ class_mean[s][j]
+
+    # Thresholds (ticks of expected edge over cost) chosen on validation to maximise total net P&L,
+    # then applied once to the test days. Not trading is always allowed and earns zero.
+    thetas = [0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
+    scenarios = [
+        ("frictionless (mid to mid)", False, 0.0),
+        ("spread, no fee", True, 0.0),
+        ("spread + taker fee", True, TAKER_FEE_USD),
+    ]
     trows = []
-    for fee_name, fee in [("taker fee", TAKER_FEE_USD), ("no fee", 0.0)]:
+    for sc_name, spread, fee in scenarios:
         for m in models + ["oracle"]:
             for j, (hn, h) in enumerate(zip(H_NAMES, H_STEPS, strict=True)):
-
-                def score_of(day: str, s: str, m=m, j=j, h=h) -> np.ndarray:
-                    if m == "oracle":
-                        y, _ = sd_of(day, s).targets(h)
-                        return y
-                    return scores(preds, m, day, s)[:, j]
-
-                grid = np.unique(
-                    np.quantile(
-                        np.abs(np.concatenate([score_of(d, s)[LOOKBACK:] for d in st.val for s in st.universe])),
-                        [0.0, 0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995, 0.999],
-                    )
-                )
-                best = (0.0, None)  # no trading is always available and earns zero
-                for th in grid:
+                best = (0.0, None)
+                for th in thetas:
                     tot = 0.0
                     for day in st.val:
                         for s in st.universe:
-                            sd = sd_of(day, s)
-                            tot += float(trades(sd, score_of(day, s), h, th, fee_ticks(sd, fee))["net"].sum())
+                            tot += float(
+                                trades(sd_of(day, s), expected(m, day, s, j, h), h, th, fee, spread)["net"].sum()
+                            )
                     if tot > best[0]:
                         best = (tot, th)
                 parts = {k: [] for k in ("gross", "spread", "fees", "net")}
                 if best[1] is not None:
                     for day in st.test:
                         for s in st.universe:
-                            sd = sd_of(day, s)
-                            tr = trades(sd, score_of(day, s), h, best[1], fee_ticks(sd, fee))
+                            tr = trades(sd_of(day, s), expected(m, day, s, j, h), h, best[1], fee, spread)
                             for k in parts:
                                 parts[k].append(tr[k])
+                    cache.clear()
                 cat = {k: np.concatenate(v) if v else np.zeros(0) for k, v in parts.items()}
+                n_tr = len(cat["net"])
                 trows.append(
                     {
-                        "costs": fee_name,
+                        "costs": sc_name,
                         "model": m,
                         "horizon": hn,
                         "val_net_ticks": best[0],
                         "threshold": best[1] if best[1] is not None else np.nan,
-                        "test_trades": len(cat["net"]),
-                        "gross_per_trade": cat["gross"].mean() if len(cat["net"]) else np.nan,
-                        "spread_per_trade": cat["spread"].mean() if len(cat["net"]) else np.nan,
-                        "fees_per_trade": cat["fees"].mean() if len(cat["net"]) else np.nan,
-                        "net_per_trade": cat["net"].mean() if len(cat["net"]) else np.nan,
+                        "test_trades": n_tr,
+                        "gross_per_trade": cat["gross"].mean() if n_tr else np.nan,
+                        "spread_per_trade": cat["spread"].mean() if n_tr else np.nan,
+                        "fees_per_trade": cat["fees"].mean() if n_tr else np.nan,
+                        "net_per_trade": cat["net"].mean() if n_tr else np.nan,
                         "test_net_ticks": cat["net"].sum(),
-                        "hit_rate": float(np.mean(cat["gross"] > 0)) if len(cat["net"]) else np.nan,
+                        "hit_rate": float(np.mean(cat["gross"] > 0)) if n_tr else np.nan,
                     }
                 )
     tr = pd.DataFrame(trows)
