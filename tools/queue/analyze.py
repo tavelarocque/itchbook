@@ -166,17 +166,48 @@ def fig_error_by_queue(per_day: dict[str, pd.DataFrame], models: list[str], out:
 
 
 def fig_fill(per_day: dict[str, pd.DataFrame], models: list[str], out: Path) -> None:
+    """Backtest fills: precision (simulated fills that really happened) against
+    recall (real fills the simulation caught), all orders and long queues."""
     day, df = next(reversed(per_day.items()))
-    mm = model_metrics(df, models)
-    fig, ax = plt.subplots(figsize=(6.4, 3.8), dpi=150)
-    x = np.arange(len(models))
-    ax.bar(x, mm["pred_fill_rate"], color="#1f4e79", width=0.6, label="predicted fill rate")
-    ax.axhline(mm["actual_fill_rate"].iloc[0], color="#e08a00", lw=2, label="actual fill rate")
-    ax.set_xticks(x, models, rotation=30, ha="right", fontsize=8)
-    ax.set_ylabel("share of tracked orders filled")
-    ax.set_title(f"{day}", fontsize=9)
-    ax.grid(axis="y", alpha=0.3)
-    ax.legend(fontsize=8)
+    panels = [("all tracked orders", df), ("joined behind 10 or more orders", df[df["orders_ahead0"] >= 10])]
+    fig, axes = plt.subplots(1, 2, figsize=(8.0, 3.9), dpi=150, sharey=True)
+    for ax, (title, g) in zip(axes, panels, strict=True):
+        mm = model_metrics(g, models)
+        ax.scatter(mm["recall"], mm["precision"], s=22, color="#1f4e79", zorder=3)
+        for _, r in mm.iterrows():
+            ax.annotate(
+                r["model"], (r["recall"], r["precision"]), textcoords="offset points", xytext=(4, 3), fontsize=7
+            )
+        ax.set_title(f"{title} ({len(g):,})", fontsize=9)
+        ax.set_xlabel("recall: real fills the model predicted")
+        ax.set_xlim(0.3, 1.02)
+        ax.set_ylim(0.55, 1.01)
+        ax.grid(alpha=0.3)
+    axes[0].set_ylabel("precision: predicted fills that were real")
+    fig.suptitle(day, fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def fig_trajectory(points_path: Path, df: pd.DataFrame, models: list[str], out: Path) -> None:
+    """Mean shares ahead (as a share of the queue at entry) after k trade prints."""
+    pts = pd.read_csv(points_path, sep="\t")
+    pts = pts.merge(df[["ref", "ahead0"]], on="ref", how="inner")
+    pts["k"] = pts.groupby("ref").cumcount()
+    pts = pts[pts["k"] < 30]
+    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=150)
+    g = pts.groupby("k")
+    truth = (g["truth"].sum() / g["ahead0"].sum()).to_numpy()
+    ax.plot(g.size().index, truth, color="black", lw=2.2, label="truth (L3)")
+    for m in models:
+        if m in pts.columns:
+            ax.plot(g.size().index, (g[m].sum() / g["ahead0"].sum()).to_numpy(), lw=1.2, label=m)
+    ax.set_xlabel("trade prints at the order's price since it joined")
+    ax.set_ylabel("shares ahead / shares ahead at entry")
+    ax.set_ylim(0, 1.02)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, ncol=2)
     fig.tight_layout()
     fig.savefig(out)
     plt.close(fig)
@@ -243,6 +274,9 @@ def main() -> int:
     fig_phi(cancels, figs / "m4_phi.png")
     fig_error_by_queue(per_day, models_all, figs / "m4_error_by_queue.png")
     fig_fill(per_day, models_all, figs / "m4_fill.png")
+    last = a.days[-1]
+    # Points come from pass 1, where the calibrated column is still the uniform model: plot fixed models only.
+    fig_trajectory(a.data / f"{last}.points.tsv.gz", per_day[last], FIXED, figs / "m4_trajectory.png")
     for day in a.days:
         print(f"== {day}")
         print(pd.read_csv(res / f"m4_models_{day}.tsv", sep="\t").to_string(index=False))

@@ -1,0 +1,8 @@
+# shares that left the queue around tracked orders, regular hours, by cause
+cause	ahead	behind
+trade	90983265	5240863
+partial_cancel	74715937	423931817
+delete	2148922406	14460747827
+replace_to_other_price	470720373	1351068535
+replace_same_price	158019407	569576915
+replace_same_price_ahead_net_visible	2434507	

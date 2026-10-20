@@ -7,6 +7,7 @@ Markup understood (deliberately small):
   ## Section / ### Sub    headings
   ```                     fenced code block, rendered verbatim
   | a | b |               pipe table (first row is the header; the |---| row is skipped)
+  ![caption](path)        figure, path relative to the repo root, scaled to the text width
   - item                  bullet list item (continuation lines are indented)
   **bold** *italic* `code`
   blank line              paragraph break
@@ -28,7 +29,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, KeepTogether, Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_DIRS = [Path("/usr/share/fonts/truetype/dejavu"), Path("/Library/Fonts"), Path.home() / "Library/Fonts"]
@@ -68,7 +69,17 @@ S = {
     "code": ParagraphStyle("code", fontName="Mono", fontSize=8.2, leading=10.6, textColor=INK),
     "cell": ParagraphStyle("cell", fontName="Serif", fontSize=9, leading=11.5, textColor=INK),
     "cellh": ParagraphStyle("cellh", fontName="Sans-Bold", fontSize=8.8, leading=11.5, textColor=INK),
+    "caption": ParagraphStyle("caption", fontName="Serif-Italic", fontSize=9, leading=12, textColor=MUTED,
+                              alignment=TA_JUSTIFY, spaceAfter=12),
 }
+
+
+def figure(path: str, caption: str):
+    img = Image(str(ROOT / path))
+    scale = min(1.0, 6.5 * inch / img.imageWidth)
+    img.drawWidth, img.drawHeight = img.imageWidth * scale, img.imageHeight * scale
+    img._restrictSize(6.5 * inch, 4.6 * inch)
+    return [KeepTogether([img, Spacer(1, 4), Paragraph(inline(caption), S["caption"])])]
 
 
 def inline(text: str) -> str:
@@ -131,6 +142,12 @@ def render(src: Path) -> Path:
                 j += 1
             story += code_block(lines[i + 1:j])
             i = j + 1
+            continue
+        fig = re.fullmatch(r"!\[(.*)\]\((.+)\)", line.strip())
+        if fig:
+            flush()
+            story += figure(fig.group(2), fig.group(1))
+            i += 1
             continue
         if line.startswith("|"):
             flush()

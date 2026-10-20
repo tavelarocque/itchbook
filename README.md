@@ -14,8 +14,8 @@ It is then used as ground truth for two microstructure studies:
 | M1 | ITCH 5.0 parser: zero-copy views of all 23 message types, bounded-memory gzip streaming | done: 423,285,709 messages on 01302020, identical to the independent reference and the published counts |
 | M2 | L3 book (`ReferenceBook`, `itch-book`) | done: 0 orphans on 01302020, empty book at close, whole-market checksums identical to the independent Python book at 35 times of day |
 | M3 | Optimised engine (`FastBook`), identical output, benchmarked against CppTrader on the same file and machine | done: byte-identical to the M2 book on 01302020; 92 ns/message vs about 315 for CppTrader's L3 book on one pinned Xeon core |
-| M4 | Research 1: queue-position ground truth | next |
-| M5 | Research 2: forecasting audit | |
+| M4 | Research 1: how wrong are L2 queue-position models against the L3 truth? | done: cancellations come overwhelmingly from behind (15% of cancelled volume ahead; 4–5% at mid-queue vs 50% under the uniform model); same-price replaces move 6.6% of the queue ahead invisibly; behind 10–24 orders the uniform model's fills are 83% real, the pessimistic model's 99% real but it misses 56% of real fills |
+| M5 | Research 2: forecasting audit | next |
 
 ## Performance
 
@@ -36,6 +36,28 @@ The order index peaks at 1.96 GB.
 scripts/bench_cpptrader.sh 01302020 3     # builds CppTrader at a pinned commit and runs both, interleaved
 scripts/bench_prefetch_ab.sh 01302020 3   # what each prefetch stage is worth
 ```
+
+## Research 1: L2 queue models against the L3 truth
+
+`itch-queue` follows 1 in 16 orders that join the best bid or ask behind other orders during regular hours (4.6 million on 01302020).
+At every trade print at their price, it compares each L2 model's estimate of the shares ahead with the true count from the L3 book.
+The truth was checked against the book's own queue walk at all 1.4 million evaluation points over the two days, with no failures.
+The models include hftbacktest's (`RiskAdverseQueueModel` and `ProbQueueModel` with its power, log and `PowerProbQueueFunc3` functions), plus one calibrated on the other trading day.
+
+| Model (01302020) | Mean error / queue at entry | Fill precision, queue 10–24 | Fill recall, queue 10–24 |
+|---|---|---|---|
+| pessimistic | 0.076 | 98.9% | 43.7% |
+| uniform (pro-rata) | 0.118 | 83.4% | 85.7% |
+| hftbacktest power2 | 0.105 | 91.9% | 80.8% |
+| hftbacktest front3 (r³) | 0.081 | 96.8% | 63.1% |
+| calibrated on 12302019 | 0.075 | 97.5% | 57.1% |
+
+```bash
+scripts/queue_study.sh 16                                          # both days, both passes (~6 min on an M2 Air)
+uv run --group analysis tools/queue/analyze.py --data ~/CODE/itch-data/m4 --days 12302019 01302020
+```
+
+`docs/m4_queue.pdf` has the method, the figures and the limits of the study.
 
 ## Build
 
@@ -93,9 +115,12 @@ include/itchbook/io/     byte sources: file/stdin, streaming gzip, memory
 src/                     source implementations
 include/itchbook/book/   ReferenceBook (oracle), FastBook, order indexes, BookBuilder
 include/itchbook/bench/  cycle-counter clock, latency histogram
+include/itchbook/queue/  L2 queue models and the QueueStudy engine
 tools/itch_stats.cpp     counts, fingerprint and throughput for a file
 tools/itch_book.cpp      L3 book replay: counters, checksums, snapshots
 tools/itch_bench.cpp     book throughput and per-update latency
+tools/itch_queue.cpp     M4 queue-position study
+tools/queue/             M4 analysis (pandas, matplotlib)
 tools/itchref/           independent Python reference parser and cross-checks
 tests/  bench/  fuzz/    GoogleTest + RapidCheck, Google Benchmark, libFuzzer
 docs/                    walkthroughs (one PDF per milestone)

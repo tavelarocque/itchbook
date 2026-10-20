@@ -1,12 +1,14 @@
 [project]
 name = "itchbook-analysis"
 version = "0.1.0"
-description = "Reference parser, cross-checks and (later) research analysis for itchbook"
+description = "Reference parser, cross-checks and research analysis for itchbook"
 requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.6"]
+# Research analysis (M4 onward): uv run --group analysis tools/queue/analyze.py ...
+analysis = ["pandas>=2.2", "numpy>=2.0", "matplotlib>=3.9"]
 
 [tool.uv]
 package = false
@@ -23,4 +25,4 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book"]
+known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze"]
