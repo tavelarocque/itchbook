@@ -279,6 +279,15 @@ std::vector<LevelInfo> FastBook::levels(Locate locate, Side side, std::size_t de
   return out;
 }
 
+std::optional<FastBook::Resting> FastBook::resting(OrderRef ref) const {
+  const std::uint32_t s = find(ref);
+  if (s == kNil) {
+    return std::nullopt;
+  }
+  const Slot& o = slots_[s];
+  return Resting{o.locate, o.side, o.price, o.shares};
+}
+
 bool FastBook::at_head(OrderRef ref) const {
   const std::uint32_t s = find(ref);
   return s != kNil && slots_[s].prev == kNil;

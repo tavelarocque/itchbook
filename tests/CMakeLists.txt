@@ -6,6 +6,7 @@ add_executable(itchbook_tests
   test_book.cpp
   test_bench_support.cpp
   test_queue.cpp
+  test_lob.cpp
 )
 target_include_directories(itchbook_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main rapidcheck rapidcheck_gtest Threads::Threads)
