@@ -22,8 +22,10 @@ def _conv(cin: int, cout: int, k: tuple[int, int], s: tuple[int, int] = (1, 1), 
 
 
 def _temporal(c: int) -> list[nn.Module]:
-    # Two (4 x 1) convolutions over time, padded so the time axis keeps its length.
-    return _conv(c, c, (4, 1), pad="same") + _conv(c, c, (4, 1), pad="same")
+    # Two (4 x 1) convolutions over time. Each is padded with 1 step before and 2 after,
+    # so the time axis keeps its length (Keras "same" for an even kernel).
+    pad = [nn.ZeroPad2d((0, 0, 1, 2))]
+    return pad + _conv(c, c, (4, 1)) + pad + _conv(c, c, (4, 1))
 
 
 class Inception(nn.Module):

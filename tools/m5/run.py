@@ -226,7 +226,7 @@ def cmd_deep(a: argparse.Namespace) -> int:
             opt.zero_grad()
             loss.backward()
             opt.step()
-            tot += float(loss)
+            tot += float(loss.detach())
             if step % 500 == 0:
                 rate = (step + 1) * a.batch / (time.time() - t0)
                 log(f"  epoch {epoch} step {step} loss {tot / (step + 1):.4f} ({rate:.0f} windows/s)")
