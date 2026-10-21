@@ -147,23 +147,37 @@ class Windows:
 
     def __init__(self, st: Study, days: list[str], view: str, scales: dict[str, float], stats=None) -> None:
         self.X, self.Y, self.ends, self.keys = [], [], [], []
+
+        def view_of(sd: SymbolDay) -> np.ndarray:
+            return sd.lob() if view == "lob" else sd.ofi(scales[sd.symbol])
+
+        def usable(sd: SymbolDay) -> np.ndarray:
+            ok = np.logical_and.reduce([m for _, m in (sd.targets(h) for h in H_STEPS)])
+            ok[: LOOKBACK - 1] = False
+            return ok
+
+        if stats is None:
+            # First pass: mean and variance over the usable rows, one symbol-day at a time, so the
+            # full-precision features of the whole split are never in memory at once.
+            n, s1, s2 = 0, 0.0, 0.0
+            for day in days:
+                for s in st.universe:
+                    sd = st.load(day, s)
+                    x = view_of(sd)[usable(sd)].astype(np.float64)
+                    n += len(x)
+                    s1 = s1 + x.sum(axis=0)
+                    s2 = s2 + (x * x).sum(axis=0)
+            mean = s1 / n
+            stats = (mean.astype(np.float32), (np.sqrt(np.maximum(s2 / n - mean * mean, 0)) + 1e-6).astype(np.float32))
+        self.stats = stats
         for day in days:
             for s in st.universe:
                 sd = st.load(day, s)
-                x = sd.lob() if view == "lob" else sd.ofi(scales[s])
                 ys = [sd.targets(h) for h in H_STEPS]
-                ok = np.logical_and.reduce([m for _, m in ys])
-                ok[: LOOKBACK - 1] = False
-                y = np.stack([to_class(t) for t, _ in ys], axis=1)
-                self.X.append(x)
-                self.Y.append(y)
-                self.ends.append(np.flatnonzero(ok))
+                self.X.append(((view_of(sd) - stats[0]) / stats[1]).astype(np.float16))
+                self.Y.append(np.stack([to_class(t) for t, _ in ys], axis=1))
+                self.ends.append(np.flatnonzero(usable(sd)))
                 self.keys.append((day, s))
-        if stats is None:
-            allx = np.concatenate([x[e] for x, e in zip(self.X, self.ends, strict=True)])
-            stats = (allx.mean(axis=0), allx.std(axis=0) + 1e-6)
-        self.stats = stats
-        self.X = [((x - stats[0]) / stats[1]).astype(np.float16) for x in self.X]
         self.sizes = np.array([len(e) for e in self.ends])
 
     def sample(self, rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
@@ -213,7 +227,11 @@ def cmd_deep(a: argparse.Namespace) -> int:
         return np.concatenate(out)
 
     best, history, bad = -1.0, [], 0
+    started = time.time()
     for epoch in range(a.epochs):
+        if (time.time() - started) / 60 > a.budget_min:
+            log(f"deep: time budget of {a.budget_min} min used; stopping before epoch {epoch}")
+            break
         model.train()
         t0 = time.time()
         tot = 0.0
@@ -227,7 +245,7 @@ def cmd_deep(a: argparse.Namespace) -> int:
             loss.backward()
             opt.step()
             tot += float(loss.detach())
-            if step % 500 == 0:
+            if step % 100 == 0:
                 rate = (step + 1) * a.batch / (time.time() - t0)
                 log(f"  epoch {epoch} step {step} loss {tot / (step + 1):.4f} ({rate:.0f} windows/s)")
         p = predict(vx)
@@ -245,8 +263,9 @@ def cmd_deep(a: argparse.Namespace) -> int:
                 break
     model.load_state_dict(torch.load(ckpt, map_location=dev))
     log("deep: predicting every day with the best epoch")
-    for day in st.days():
-        ws = Windows(st, [day], a.input, scales, tr.stats)
+    del tr  # free the training set before prediction
+    for day in st.val + st.test:  # evaluation needs only these
+        ws = Windows(st, [day], a.input, scales, va.stats)
         for (d, s), x in zip(ws.keys, ws.X, strict=True):
             n = len(x)
             ends = np.arange(LOOKBACK - 1, n)
@@ -466,6 +485,7 @@ def main() -> int:
             p.add_argument("--batch", type=int, default=256)
             p.add_argument("--lr", type=float, default=1e-3)
             p.add_argument("--patience", type=int, default=2)
+            p.add_argument("--budget-min", type=float, default=150.0, help="stop starting new epochs after this")
             p.add_argument("--val-samples", type=int, default=100_000)
             p.add_argument("--seed", type=int, default=1)
         if name == "evaluate":
