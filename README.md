@@ -23,7 +23,7 @@ Each milestone has a walkthrough in `docs/` that explains the method and every d
 | M2 | L3 book (`ReferenceBook`, `itch-book`) | done: 0 orphans on 01302020, empty book at close, whole-market checksums identical to the independent Python book at 35 times of day |
 | M3 | Optimised engine (`FastBook`), identical output, benchmarked against CppTrader on the same file and machine | done: byte-identical to the M2 book on 01302020; 92 ns/message vs about 315 for CppTrader's L3 book on one pinned Xeon core |
 | M4 | Research 1: how wrong are L2 queue-position models against the L3 truth? | done: cancellations come overwhelmingly from behind (15% of cancelled volume ahead; 4–5% at mid-queue vs 50% under the uniform model); same-price replaces move 6.6% of the queue ahead invisibly; behind 10–24 orders the uniform model's fills are 83% real, the pessimistic model's 99% real but it misses 56% of real fills |
-| M5 | Research 2: deep LOB models vs an OFI baseline, after costs | results in: DeepLOB beats ridge-on-OFI on macro-F1 (0.47–0.53 vs 0.43–0.45) mainly by predicting "no move"; ridge calls direction as well or better; neither has a profitable trade after the spread and the $0.003 taker fee, against up to 7.6 ticks/trade available to perfect foresight. Order-flow deep model and a longer DeepLOB run in progress |
+| M5 | Research 2: deep LOB models vs an OFI baseline, after costs | done: DeepLOB beats ridge-on-OFI on macro-F1 (0.47–0.53 vs 0.43–0.45) mainly by predicting "no move"; ridge calls direction as well or better; a deep model on OFI does no better than DeepLOB; none of the three has a profitable trade after the spread and the $0.003 taker fee, against up to 7.6 ticks/trade available to perfect foresight. Both deep models were trained on a laptop and stopped short of convergence |
 
 ## Performance
 
@@ -73,14 +73,16 @@ uv run --group analysis tools/queue/analyze.py --data ~/CODE/itch-data/m4 --days
 The universe was fixed on the first day, before any other day was looked at.
 Models are trained on four days, every choice (penalty, thresholds, early stopping) is made on a fifth, and they are scored once on the last two.
 
-| Test days (12302019, 01302020) | Ridge on multi-level OFI | DeepLOB |
-|---|---|---|
-| Macro-F1, 1 s / 5 s / 30 s | 0.43 / 0.45 / 0.43 | 0.47 / 0.53 / 0.51 |
-| Direction right when it calls a move, 1 s | 62.7% | 55.7% |
-| Edge per trade before costs (ticks), 1 s / 5 s / 30 s | 0.14 / 0.25 / 0.23 | 0.11 / 0.21 / 0.43 |
-| Profitable taker trades after spread and fee | none | none |
+| Test days (12302019, 01302020) | Ridge on multi-level OFI | DeepLOB | Deep model on OFI |
+|---|---|---|---|
+| Macro-F1, 1 s / 5 s / 30 s | 0.43 / 0.45 / 0.43 | 0.47 / 0.53 / 0.51 | 0.41 / 0.52 / 0.48 |
+| Direction right when it calls a move, 1 s | 62.7% | 55.7% | 53.1% |
+| Edge per trade before costs (ticks), 1 s / 5 s / 30 s | 0.14 / 0.25 / 0.23 | 0.11 / 0.21 / 0.43 | 0.11 / 0.25 / 0.26 |
+| Profitable taker trades after spread and fee | none | none | none |
 
 Perfect foresight earns 1.1 / 2.6 / 7.6 ticks per trade after the same costs.
+
+`docs/m5_forecasting.pdf` has the method, the results and the limits.
 
 ```bash
 scripts/m5_prepare.sh          # rank day 1, fix the universe, extract features, fit the ridge baseline
