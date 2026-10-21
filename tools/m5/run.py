@@ -27,6 +27,7 @@ from lob import HORIZONS, LOOKBACK, Study, SymbolDay  # noqa: E402
 H_NAMES = list(HORIZONS)
 H_STEPS = [HORIZONS[h] for h in H_NAMES]
 TAKER_FEE_USD = 0.0030  # per share per side, NASDAQ standard fee to remove liquidity (2019-20)
+PRED_STRIDE = 4  # deep models predict every 4th row (all trading decision points); metrics use these rows
 
 
 def log(*a: object) -> None:
@@ -157,18 +158,7 @@ class Windows:
             return ok
 
         if stats is None:
-            # First pass: mean and variance over the usable rows, one symbol-day at a time, so the
-            # full-precision features of the whole split are never in memory at once.
-            n, s1, s2 = 0, 0.0, 0.0
-            for day in days:
-                for s in st.universe:
-                    sd = st.load(day, s)
-                    x = view_of(sd)[usable(sd)].astype(np.float64)
-                    n += len(x)
-                    s1 = s1 + x.sum(axis=0)
-                    s2 = s2 + (x * x).sum(axis=0)
-            mean = s1 / n
-            stats = (mean.astype(np.float32), (np.sqrt(np.maximum(s2 / n - mean * mean, 0)) + 1e-6).astype(np.float32))
+            stats = Windows.split_stats(st, days, view, scales)
         self.stats = stats
         for day in days:
             for s in st.universe:
@@ -179,6 +169,25 @@ class Windows:
                 self.ends.append(np.flatnonzero(usable(sd)))
                 self.keys.append((day, s))
         self.sizes = np.array([len(e) for e in self.ends])
+
+    @staticmethod
+    def split_stats(st: Study, days: list[str], view: str, scales: dict[str, float]) -> tuple[np.ndarray, np.ndarray]:
+        """Mean and SD over the usable rows of a split, one symbol-day at a time, so the
+        full-precision features of the whole split are never in memory at once."""
+        n, s1, s2 = 0, 0.0, 0.0
+        for day in days:
+            for s in st.universe:
+                sd = st.load(day, s)
+                x = (sd.lob() if view == "lob" else sd.ofi(scales[s])).astype(np.float64)
+                ok = np.logical_and.reduce([m for _, m in (sd.targets(h) for h in H_STEPS)])
+                ok[: LOOKBACK - 1] = False
+                x = x[ok]
+                n += len(x)
+                s1 = s1 + x.sum(axis=0)
+                s2 = s2 + (x * x).sum(axis=0)
+        mean = s1 / n
+        sd_ = np.sqrt(np.maximum(s2 / n - mean * mean, 0)) + 1e-6
+        return mean.astype(np.float32), sd_.astype(np.float32)
 
     def sample(self, rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
         which = rng.choice(len(self.X), size=n, p=self.sizes / self.sizes.sum())
@@ -203,28 +212,72 @@ def cmd_deep(a: argparse.Namespace) -> int:
     dev = device()
     torch.manual_seed(a.seed)
     rng = np.random.default_rng(a.seed)
-    log("deep: loading training days on", dev)
-    tr = Windows(st, st.train, a.input, scales)
-    va = Windows(st, st.val, a.input, scales, tr.stats)
-    log(f"deep: {tr.sizes.sum():,} training windows, {va.sizes.sum():,} validation windows")
-    nf = tr.X[0].shape[1]
-    model = DeepLOB(nf, len(H_STEPS), lob_layout=a.input == "lob").to(dev)
-    opt = torch.optim.Adam(model.parameters(), lr=a.lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
-    vx, vy = va.sample(np.random.default_rng(12345), a.val_samples)
     name = "deeplob" if a.input == "lob" else "deepofi"
     preds = Path(a.preds)
     preds.mkdir(parents=True, exist_ok=True)
     ckpt = preds / f"{name}.pt"
+    stats_path = preds / f"{name}.stats.npz"
+    nf = 40 if a.input == "lob" else 12
+    model = DeepLOB(nf, len(H_STEPS), lob_layout=a.input == "lob").to(dev)
 
     def predict(x: np.ndarray) -> np.ndarray:
         model.eval()
         out = []
         with torch.no_grad():
-            for i in range(0, len(x), 4096):
-                logits = model(torch.from_numpy(x[i : i + 4096]).to(dev))
+            for i in range(0, len(x), 1024):
+                logits = model(torch.from_numpy(x[i : i + 1024]).to(dev))
                 out.append(np.stack([torch.softmax(z, 1).cpu().numpy() for z in logits], axis=1))
         return np.concatenate(out)
+
+    history: list[dict] = []
+    best = -1.0
+    if a.predict_only:
+        if stats_path.exists():
+            z = np.load(stats_path)
+            stats = (z["mean"], z["std"])
+        else:  # recompute exactly as training did (same days, same streaming pass)
+            stats = Windows.split_stats(st, st.train, a.input, scales)
+            np.savez(stats_path, mean=stats[0], std=stats[1])
+        old = preds / f"{name}.meta.json"
+        if old.exists():
+            j = json.loads(old.read_text())
+            history, best = j.get("history", []), j.get("best_val_macro_f1", -1.0)
+    else:
+        log("deep: loading training days on", dev)
+        tr = Windows(st, st.train, a.input, scales)
+        stats = tr.stats
+        np.savez(stats_path, mean=stats[0], std=stats[1])
+        va = Windows(st, st.val, a.input, scales, stats)
+        log(f"deep: {tr.sizes.sum():,} training windows, {va.sizes.sum():,} validation windows")
+        best, history = train(a, model, tr, va, ckpt, predict, rng, dev, name)
+        del tr, va  # free the training set before prediction
+    model.load_state_dict(torch.load(ckpt, map_location=dev))
+    log(f"deep: predicting validation and test days every {a.pred_stride} steps with the best epoch")
+    for day in st.val + st.test:  # evaluation needs only these
+        ws = Windows(st, [day], a.input, scales, stats)
+        for (d, s), x in zip(ws.keys, ws.X, strict=True):
+            n = len(x)
+            # Every decision point the trading evaluation uses (t = LOOKBACK + k*h, h a multiple of the
+            # stride) and a regular subsample for the classification metrics.
+            ends = np.arange(LOOKBACK, n, a.pred_stride)
+            out = np.full((n, len(H_STEPS), 3), np.nan, dtype=np.float16)
+            for i in range(0, len(ends), 2048):
+                e = ends[i : i + 2048]
+                xb = x[e[:, None] + np.arange(-LOOKBACK + 1, 1)[None, :]].astype(np.float32)
+                out[e] = predict(xb).astype(np.float16)
+            np.save(preds / f"{name}.{d}.{s}.npy", out)
+        log("  predicted", day)
+    meta = {"input": a.input, "history": history, "best_val_macro_f1": best, "args": vars(a)}
+    (preds / f"{name}.meta.json").write_text(json.dumps(meta, indent=1, default=str))
+    return 0
+
+
+def train(a, model, tr, va, ckpt, predict, rng, dev, name) -> tuple[float, list[dict]]:
+    import torch
+
+    opt = torch.optim.Adam(model.parameters(), lr=a.lr)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    vx, vy = va.sample(np.random.default_rng(12345), a.val_samples)
 
     best, history, bad = -1.0, [], 0
     started = time.time()
@@ -261,24 +314,7 @@ def cmd_deep(a: argparse.Namespace) -> int:
             if bad >= a.patience:
                 log("deep: early stop")
                 break
-    model.load_state_dict(torch.load(ckpt, map_location=dev))
-    log("deep: predicting every day with the best epoch")
-    del tr  # free the training set before prediction
-    for day in st.val + st.test:  # evaluation needs only these
-        ws = Windows(st, [day], a.input, scales, va.stats)
-        for (d, s), x in zip(ws.keys, ws.X, strict=True):
-            n = len(x)
-            ends = np.arange(LOOKBACK - 1, n)
-            out = np.full((n, len(H_STEPS), 3), np.nan, dtype=np.float16)
-            for i in range(0, len(ends), 16384):
-                e = ends[i : i + 16384]
-                xb = x[e[:, None] + np.arange(-LOOKBACK + 1, 1)[None, :]].astype(np.float32)
-                out[e] = predict(xb).astype(np.float16)
-            np.save(preds / f"{name}.{d}.{s}.npy", out)
-        log("  predicted", day)
-    meta = {"input": a.input, "history": history, "best_val_macro_f1": best, "args": vars(a)}
-    (preds / f"{name}.meta.json").write_text(json.dumps(meta, indent=1, default=str))
-    return 0
+    return best, history
 
 
 # ---- evaluation -----------------------------------------------------------------
@@ -338,22 +374,25 @@ def cmd_evaluate(a: argparse.Namespace) -> int:
             cache[(day, s)] = st.load(day, s)
         return cache[(day, s)]
 
-    # Ridge dead zones for classification, chosen on validation by macro-F1.
-    dead = [0.0] * len(H_STEPS)
+    # Ridge dead zones for classification (|forecast| below it means "flat"), one per symbol and
+    # horizon, chosen on validation by macro-F1. Per symbol, because how often the mid stays put
+    # differs enormously between a 1-tick-spread stock and a 30-tick one, and a deep model can learn
+    # that from the book; a single shared cutoff would handicap the baseline.
+    dead: dict[str, list[float]] = {s: [0.0] * len(H_STEPS) for s in st.universe}
     if "ridge" in models:
-        for j, h in enumerate(H_STEPS):
-            best = (-1, 0.0)
-            for d in [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]:
-                tr_, pr_ = [], []
-                for day in st.val:
-                    for s in st.universe:
+        for s in st.universe:
+            for j, h in enumerate(H_STEPS):
+                best = (-1.0, 0.0)
+                for d in [0.0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0]:
+                    tr_, pr_ = [], []
+                    for day in st.val:
                         y, ok = sd_of(day, s).targets(h)
                         p = scores(preds, "ridge", day, s)[:, j]
                         tr_.append(to_class(y[ok]))
                         pr_.append(np.where(p[ok] > d, 2, np.where(p[ok] < -d, 0, 1)))
-                f1 = macro_f1(np.concatenate(tr_), np.concatenate(pr_))
-                best = max(best, (f1, d))
-            dead[j] = best[1]
+                    f1 = macro_f1(np.concatenate(tr_), np.concatenate(pr_))
+                    best = max(best, (f1, d))
+                dead[s][j] = best[1]
 
     rows = []
     for m in models + ["majority"]:
@@ -364,11 +403,12 @@ def cmd_evaluate(a: argparse.Namespace) -> int:
                     y, ok = sd_of(day, s).targets(h)
                     ok = ok.copy()
                     ok[:LOOKBACK] = False
+                    ok &= (np.arange(len(ok)) - LOOKBACK) % PRED_STRIDE == 0  # rows every model predicted
                     tr_.append(to_class(y[ok]))
                     if m == "majority":
                         pr_.append(np.ones(ok.sum(), dtype=np.int8))
                     else:
-                        pr_.append(classes(preds, m, day, s, dead)[ok, j])
+                        pr_.append(classes(preds, m, day, s, dead[s])[ok, j])
             t_, p_ = np.concatenate(tr_), np.concatenate(pr_)
             moved = t_ != 1
             rows.append(
@@ -486,6 +526,8 @@ def main() -> int:
             p.add_argument("--lr", type=float, default=1e-3)
             p.add_argument("--patience", type=int, default=2)
             p.add_argument("--budget-min", type=float, default=150.0, help="stop starting new epochs after this")
+            p.add_argument("--predict-only", action="store_true", help="reuse the saved checkpoint and stats")
+            p.add_argument("--pred-stride", type=int, default=PRED_STRIDE)
             p.add_argument("--val-samples", type=int, default=100_000)
             p.add_argument("--seed", type=int, default=1)
         if name == "evaluate":
