@@ -6,9 +6,11 @@
 #   scripts/m5_train.sh [BUDGET_MIN_PER_MODEL] [MODELS]
 #
 # BUDGET defaults to 150; MODELS to "lob ofi". A model whose checkpoint already exists in
-# preds/ is not retrained, only used for prediction (delete preds/deeplob.pt to retrain).
+# preds/ is not retrained, only used for prediction (move preds/deeplob.pt away to retrain).
+# PATIENCE (default 3): epochs without validation improvement before stopping.
 set -uo pipefail
 budget="${1:-150}"
+patience="${PATIENCE:-3}"
 models="${2:-lob ofi}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 data="${ITCH_DATA:-$HOME/CODE/itch-data}"
@@ -23,7 +25,7 @@ run() { uv run -q --group analysis --group deep python tools/m5/run.py "$@" --st
     name=$([ "$m" = lob ] && echo deeplob || echo deepofi)
     extra=()
     [ -f "$m5/preds/$name.pt" ] && extra=(--predict-only)
-    run deep --input "$m" --epochs 40 --steps 1000 --batch 256 --patience 3 --val-samples 50000 \
+    run deep --input "$m" --epochs 40 --steps 1000 --batch 256 --patience "$patience" --val-samples 50000 \
       --budget-min "$budget" ${extra[@]+"${extra[@]}"} || echo "${name}_FAILED"
   done
   uv run -q --group analysis python tools/m5/run.py evaluate --study "$m5/study.json" --data "$m5/features" \
