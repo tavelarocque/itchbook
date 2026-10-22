@@ -53,6 +53,14 @@ class FastBook {
   [[nodiscard]] std::size_t live_orders() const noexcept { return live_; }
   [[nodiscard]] std::size_t level_count() const noexcept { return level_count_; }
   [[nodiscard]] std::optional<OrderInfo> order(OrderRef ref) const;
+  // The order's symbol, side, price and shares without walking its queue (O(1)).
+  struct Resting {
+    Locate locate;
+    Side side;
+    Price price;
+    Shares shares;
+  };
+  [[nodiscard]] std::optional<Resting> resting(OrderRef ref) const;
   [[nodiscard]] bool at_head(OrderRef ref) const;
   [[nodiscard]] std::uint64_t checksum() const;
   [[nodiscard]] const BookStats& stats() const noexcept { return stats_; }

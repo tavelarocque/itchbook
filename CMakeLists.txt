@@ -65,6 +65,10 @@ add_executable(itch-queue tools/itch_queue.cpp)
 target_link_libraries(itch-queue PRIVATE itchbook::core)
 itchbook_set_warnings(itch-queue)
 
+add_executable(itch-lob tools/itch_lob.cpp)
+target_link_libraries(itch-lob PRIVATE itchbook::core)
+itchbook_set_warnings(itch-lob)
+
 if(ITCHBOOK_BUILD_TESTS OR ITCHBOOK_BUILD_BENCH)
   include(Dependencies)
 endif()

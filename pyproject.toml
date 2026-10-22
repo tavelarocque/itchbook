@@ -9,6 +9,8 @@ dependencies = []
 dev = ["pytest>=8.3", "ruff>=0.6"]
 # Research analysis (M4 onward): uv run --group analysis tools/queue/analyze.py ...
 analysis = ["pandas>=2.2", "numpy>=2.0", "matplotlib>=3.9"]
+# Deep models (M5): uv run --group analysis --group deep tools/m5/run.py deep ...
+deep = ["torch>=2.5"]
 
 [tool.uv]
 package = false
@@ -25,4 +27,4 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze"]
+known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze", "lob", "deep", "run"]

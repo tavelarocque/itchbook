@@ -1,0 +1,38 @@
+{
+  "rule": "top 20 by trade prints on the first day, VWAP >= $5",
+  "universe": [
+    "SPY",
+    "AMD",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "FB",
+    "QQQ",
+    "BABA",
+    "MU",
+    "TSLA",
+    "AMZN",
+    "T",
+    "QCOM",
+    "INTC",
+    "IWM",
+    "TQQQ",
+    "CRON",
+    "EBAY",
+    "VZ",
+    "SBUX"
+  ],
+  "train": [
+    "01302019",
+    "03272019",
+    "07302019",
+    "08302019"
+  ],
+  "val": [
+    "10302019"
+  ],
+  "test": [
+    "12302019",
+    "01302020"
+  ]
+}
