@@ -242,3 +242,353 @@ frictionless (mid to mid)  oracle     30s        86478.0       0.00        25622
        spread + taker fee  oracle      5s        18489.8       0.00        32024         7.367490          4.164018             0.6       2.603472         83373.6  1.000000
        spread + taker fee  oracle     30s        28203.8       0.00        14294        13.969533          5.770638             0.6       7.598895        108618.6  1.000000
 # finished Wed Oct 21 13:18:51 PDT 2026
+# m5_train Wed Oct 21 21:52:00 PDT 2026 itchbook db2760e budget 240 min/model
+total = 15360.00M  used = 14339.44M  free = 1020.56M  (encrypted)
+21:52:05 deep: loading training days on mps
+21:52:25 deep: 7,459,200 training windows, 1,864,800 validation windows
+21:52:31   epoch 0 step 0 loss 3.3587 (75 windows/s)
+21:53:09   epoch 0 step 100 loss 2.7879 (614 windows/s)
+21:53:45   epoch 0 step 200 loss 2.7407 (665 windows/s)
+21:56:11   epoch 0 step 300 loss 2.7181 (345 windows/s)
+21:58:22   epoch 0 step 400 loss 2.7047 (289 windows/s)
+22:01:50   epoch 0 step 500 loss 2.6993 (228 windows/s)
+22:03:49   epoch 0 step 600 loss 2.6903 (226 windows/s)
+22:06:20   epoch 0 step 700 loss 2.6815 (216 windows/s)
+22:11:36   epoch 0 step 800 loss 2.6750 (179 windows/s)
+22:13:15   epoch 0 step 900 loss 2.6690 (185 windows/s)
+22:14:55 deep deeplob epoch 0: loss 2.6640, validation macro-F1 [0.3623 0.4987 0.4764]
+22:15:06   epoch 1 step 0 loss 2.5380 (25 windows/s)
+22:16:19   epoch 1 step 100 loss 2.5900 (308 windows/s)
+22:17:54   epoch 1 step 200 loss 2.5927 (288 windows/s)
+22:18:37   epoch 1 step 300 loss 2.5943 (348 windows/s)
+22:19:24   epoch 1 step 400 loss 2.5950 (382 windows/s)
+22:20:12   epoch 1 step 500 loss 2.5954 (405 windows/s)
+22:20:56   epoch 1 step 600 loss 2.5936 (427 windows/s)
+22:21:21   epoch 1 step 700 loss 2.5908 (465 windows/s)
+22:21:58   epoch 1 step 800 loss 2.5900 (485 windows/s)
+22:23:03   epoch 1 step 900 loss 2.5899 (473 windows/s)
+22:24:03 deep deeplob epoch 1: loss 2.5907, validation macro-F1 [0.3664 0.5042 0.482 ]
+22:24:05   epoch 2 step 0 loss 2.5309 (141 windows/s)
+22:25:05   epoch 2 step 100 loss 2.5838 (421 windows/s)
+22:26:01   epoch 2 step 200 loss 2.5846 (437 windows/s)
+22:26:43   epoch 2 step 300 loss 2.5821 (482 windows/s)
+22:27:49   epoch 2 step 400 loss 2.5808 (454 windows/s)
+22:28:27   epoch 2 step 500 loss 2.5810 (487 windows/s)
+22:28:58   epoch 2 step 600 loss 2.5808 (522 windows/s)
+22:29:23   epoch 2 step 700 loss 2.5806 (561 windows/s)
+22:29:58   epoch 2 step 800 loss 2.5791 (578 windows/s)
+22:30:32   epoch 2 step 900 loss 2.5789 (594 windows/s)
+22:31:16 deep deeplob epoch 2: loss 2.5786, validation macro-F1 [0.3719 0.5122 0.4315]
+22:31:18   epoch 3 step 0 loss 2.6382 (223 windows/s)
+22:31:54   epoch 3 step 100 loss 2.5797 (692 windows/s)
+22:32:34   epoch 3 step 200 loss 2.5752 (662 windows/s)
+22:33:22   epoch 3 step 300 loss 2.5778 (613 windows/s)
+22:33:53   epoch 3 step 400 loss 2.5775 (657 windows/s)
+22:34:21   epoch 3 step 500 loss 2.5794 (696 windows/s)
+22:34:49   epoch 3 step 600 loss 2.5795 (723 windows/s)
+22:35:21   epoch 3 step 700 loss 2.5786 (734 windows/s)
+22:36:05   epoch 3 step 800 loss 2.5776 (711 windows/s)
+22:36:35   epoch 3 step 900 loss 2.5776 (723 windows/s)
+22:37:27 deep deeplob epoch 3: loss 2.5759, validation macro-F1 [0.3862 0.5148 0.4614]
+22:37:27   epoch 4 step 0 loss 2.6041 (604 windows/s)
+22:38:01   epoch 4 step 100 loss 2.5748 (773 windows/s)
+22:38:33   epoch 4 step 200 loss 2.5775 (779 windows/s)
+22:39:02   epoch 4 step 300 loss 2.5781 (808 windows/s)
+22:39:37   epoch 4 step 400 loss 2.5755 (790 windows/s)
+22:40:05   epoch 4 step 500 loss 2.5756 (815 windows/s)
+22:40:35   epoch 4 step 600 loss 2.5765 (819 windows/s)
+22:41:12   epoch 4 step 700 loss 2.5775 (797 windows/s)
+22:41:38   epoch 4 step 800 loss 2.5759 (818 windows/s)
+22:42:08   epoch 4 step 900 loss 2.5761 (820 windows/s)
+22:42:55 deep deeplob epoch 4: loss 2.5762, validation macro-F1 [0.3823 0.5121 0.4759]
+22:42:56   epoch 5 step 0 loss 2.5751 (322 windows/s)
+22:43:24   epoch 5 step 100 loss 2.5667 (908 windows/s)
+22:43:56   epoch 5 step 200 loss 2.5681 (844 windows/s)
+22:44:24   epoch 5 step 300 loss 2.5692 (863 windows/s)
+22:48:14   epoch 5 step 400 loss 2.5705 (322 windows/s)
+22:49:53   epoch 5 step 500 loss 2.5714 (307 windows/s)
+22:51:22   epoch 5 step 600 loss 2.5716 (304 windows/s)
+22:52:45   epoch 5 step 700 loss 2.5701 (304 windows/s)
+22:55:02   epoch 5 step 800 loss 2.5700 (282 windows/s)
+22:56:07   epoch 5 step 900 loss 2.5705 (291 windows/s)
+22:58:50 deep deeplob epoch 5: loss 2.5702, validation macro-F1 [0.4028 0.5129 0.4904]
+22:58:52   epoch 6 step 0 loss 2.5539 (112 windows/s)
+23:01:56   epoch 6 step 100 loss 2.5596 (139 windows/s)
+23:03:25   epoch 6 step 200 loss 2.5627 (187 windows/s)
+23:09:02   epoch 6 step 300 loss 2.5647 (126 windows/s)
+23:10:20   epoch 6 step 400 loss 2.5678 (149 windows/s)
+23:11:45   epoch 6 step 500 loss 2.5702 (165 windows/s)
+23:13:40   epoch 6 step 600 loss 2.5701 (173 windows/s)
+23:14:48   epoch 6 step 700 loss 2.5673 (187 windows/s)
+23:15:27   epoch 6 step 800 loss 2.5672 (206 windows/s)
+23:16:27   epoch 6 step 900 loss 2.5670 (218 windows/s)
+23:17:58 deep deeplob epoch 6: loss 2.5663, validation macro-F1 [0.3904 0.4975 0.4521]
+23:18:02   epoch 7 step 0 loss 2.4687 (71 windows/s)
+23:19:15   epoch 7 step 100 loss 2.5706 (335 windows/s)
+23:20:59   epoch 7 step 200 loss 2.5679 (284 windows/s)
+23:22:11   epoch 7 step 300 loss 2.5682 (305 windows/s)
+23:23:19   epoch 7 step 400 loss 2.5688 (320 windows/s)
+23:24:16   epoch 7 step 500 loss 2.5682 (340 windows/s)
+23:24:55   epoch 7 step 600 loss 2.5681 (369 windows/s)
+23:26:38   epoch 7 step 700 loss 2.5670 (345 windows/s)
+23:28:33   epoch 7 step 800 loss 2.5661 (323 windows/s)
+23:29:44   epoch 7 step 900 loss 2.5664 (327 windows/s)
+23:31:29 deep deeplob epoch 7: loss 2.5665, validation macro-F1 [0.3858 0.513  0.4283]
+23:31:30   epoch 8 step 0 loss 2.5957 (358 windows/s)
+23:33:29   epoch 8 step 100 loss 2.5656 (217 windows/s)
+23:34:20   epoch 8 step 200 loss 2.5640 (301 windows/s)
+23:35:18   epoch 8 step 300 loss 2.5651 (338 windows/s)
+23:36:25   epoch 8 step 400 loss 2.5639 (347 windows/s)
+23:37:55   epoch 8 step 500 loss 2.5623 (333 windows/s)
+23:39:06   epoch 8 step 600 loss 2.5628 (337 windows/s)
+23:40:43   epoch 8 step 700 loss 2.5625 (324 windows/s)
+23:42:04   epoch 8 step 800 loss 2.5635 (323 windows/s)
+23:43:04   epoch 8 step 900 loss 2.5637 (332 windows/s)
+23:44:04 deep deeplob epoch 8: loss 2.5645, validation macro-F1 [0.3944 0.5134 0.472 ]
+23:44:16   epoch 9 step 0 loss 2.5552 (21 windows/s)
+23:45:00   epoch 9 step 100 loss 2.5582 (461 windows/s)
+23:45:50   epoch 9 step 200 loss 2.5604 (488 windows/s)
+23:48:17   epoch 9 step 300 loss 2.5629 (305 windows/s)
+23:51:49   epoch 9 step 400 loss 2.5614 (221 windows/s)
+23:53:34   epoch 9 step 500 loss 2.5609 (225 windows/s)
+23:55:09   epoch 9 step 600 loss 2.5617 (232 windows/s)
+23:56:48   epoch 9 step 700 loss 2.5622 (235 windows/s)
+23:58:44   epoch 9 step 800 loss 2.5616 (233 windows/s)
+00:00:49   epoch 9 step 900 loss 2.5613 (230 windows/s)
+00:02:33 deep deeplob epoch 9: loss 2.5618, validation macro-F1 [0.3783 0.5161 0.4411]
+00:02:39   epoch 10 step 0 loss 2.5907 (48 windows/s)
+00:03:47   epoch 10 step 100 loss 2.5545 (351 windows/s)
+00:04:45   epoch 10 step 200 loss 2.5613 (390 windows/s)
+00:05:35   epoch 10 step 300 loss 2.5622 (424 windows/s)
+00:07:06   epoch 10 step 400 loss 2.5620 (376 windows/s)
+00:08:18   epoch 10 step 500 loss 2.5624 (373 windows/s)
+00:09:48   epoch 10 step 600 loss 2.5608 (354 windows/s)
+00:11:35   epoch 10 step 700 loss 2.5614 (331 windows/s)
+00:13:05   epoch 10 step 800 loss 2.5611 (324 windows/s)
+00:15:12   epoch 10 step 900 loss 2.5607 (304 windows/s)
+00:16:59 deep deeplob epoch 10: loss 2.5616, validation macro-F1 [0.3814 0.514  0.4711]
+00:16:59 deep: early stop
+00:17:00 deep: predicting validation and test days every 4 steps with the best epoch
+00:19:33   predicted 10302019
+00:21:35   predicted 12302019
+00:24:25   predicted 01302020
+   model horizon  accuracy  macro_f1  direction_hit_when_moved_and_called  share_flat_true
+   ridge      1s  0.563835  0.426179                             0.626928         0.633054
+   ridge      5s  0.460414  0.450830                             0.563979         0.374445
+   ridge     30s  0.439381  0.426362                             0.524034         0.175649
+ deeplob      1s  0.662963  0.465151                             0.557212         0.633054
+ deeplob      5s  0.549513  0.532777                             0.538785         0.374445
+ deeplob     30s  0.490856  0.505395                             0.521177         0.175649
+majority      1s  0.633054  0.258434                                  NaN         0.633054
+majority      5s  0.374445  0.181622                                  NaN         0.374445
+majority     30s  0.175649  0.099604                                  NaN         0.175649
+                    costs   model horizon  val_net_ticks  threshold  test_trades  gross_per_trade  spread_per_trade  fees_per_trade  net_per_trade  test_net_ticks  hit_rate
+frictionless (mid to mid)   ridge      1s        48319.5       0.00       934960         0.139418          0.000000             0.0       0.139418        130350.0  0.216353
+frictionless (mid to mid)   ridge      5s        20123.0       0.00       186960         0.248192          0.000000             0.0       0.248192         46402.0  0.349567
+frictionless (mid to mid)   ridge     30s         4928.0       0.00        31160         0.229846          0.000000             0.0       0.229846          7162.0  0.436104
+frictionless (mid to mid) deeplob      1s        46726.5       0.00       934960         0.110983          0.000000             0.0       0.110983        103765.0  0.218085
+frictionless (mid to mid) deeplob      5s        18499.0       0.00       186960         0.212243          0.000000             0.0       0.212243         39681.0  0.351803
+frictionless (mid to mid) deeplob     30s         7553.0       0.00        31160         0.425385          0.000000             0.0       0.425385         13255.0  0.439891
+frictionless (mid to mid)  oracle      1s       270953.5       0.00       343423         2.453645          0.000000             0.0       2.453645        842638.0  1.000000
+frictionless (mid to mid)  oracle      5s       173415.0       0.00       117146         4.432085          0.000000             0.0       4.432085        519201.0  1.000000
+frictionless (mid to mid)  oracle     30s        86478.0       0.00        25622         9.811295          0.000000             0.0       9.811295        251385.0  1.000000
+           spread, no fee   ridge      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee   ridge      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee   ridge     30s            8.0       0.50          141        -0.882979          1.443262             0.0      -2.326241          -328.0  0.375887
+           spread, no fee deeplob      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deeplob      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deeplob     30s            1.0       0.25            3        -0.166667          1.166667             0.0      -1.333333            -4.0  0.333333
+           spread, no fee  oracle      1s        16004.0       0.00        50257         4.356806          3.128062             0.0       1.228744         61753.0  1.000000
+           spread, no fee  oracle      5s        25766.0       0.00        37914         6.645289          3.908147             0.0       2.737142        103776.0  1.000000
+           spread, no fee  oracle     30s        32198.0       0.00        15222        13.301504          5.577421             0.0       7.724084        117576.0  1.000000
+       spread + taker fee   ridge      1s            2.4       0.25            9         0.277778          2.722222             0.6      -3.044444           -27.4  0.333333
+       spread + taker fee   ridge      5s            8.2       0.25           20         1.250000          1.450000             0.6      -0.800000           -16.0  0.450000
+       spread + taker fee   ridge     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee  oracle      1s         9108.4       0.00        35260         5.254637          3.538188             0.6       1.116449         39366.0  1.000000
+       spread + taker fee  oracle      5s        18489.8       0.00        32024         7.367490          4.164018             0.6       2.603472         83373.6  1.000000
+       spread + taker fee  oracle     30s        28203.8       0.00        14294        13.969533          5.770638             0.6       7.598895        108618.6  1.000000
+# finished Thu Oct 22 00:25:29 PDT 2026
+# m5_train Thu Oct 22 00:25:29 PDT 2026 itchbook db2760e budget 120 min/model
+total = 13312.00M  used = 12687.88M  free = 624.12M  (encrypted)
+00:25:32 deep: loading training days on mps
+00:25:37 deep: 7,459,200 training windows, 1,864,800 validation windows
+00:25:41   epoch 0 step 0 loss 3.3570 (102 windows/s)
+00:25:47   epoch 0 step 100 loss 2.7957 (2775 windows/s)
+00:25:53   epoch 0 step 200 loss 2.7423 (3497 windows/s)
+00:25:59   epoch 0 step 300 loss 2.7146 (3762 windows/s)
+00:26:05   epoch 0 step 400 loss 2.6990 (3852 windows/s)
+00:26:10   epoch 0 step 500 loss 2.6919 (3977 windows/s)
+00:26:16   epoch 0 step 600 loss 2.6831 (4031 windows/s)
+00:26:22   epoch 0 step 700 loss 2.6757 (4050 windows/s)
+00:26:29   epoch 0 step 800 loss 2.6707 (4054 windows/s)
+00:26:34   epoch 0 step 900 loss 2.6669 (4136 windows/s)
+00:26:44 deep deepofi epoch 0: loss 2.6636, validation macro-F1 [0.319  0.4755 0.4586]
+00:26:44   epoch 1 step 0 loss 2.5728 (2763 windows/s)
+00:26:52   epoch 1 step 100 loss 2.6160 (3476 windows/s)
+00:27:02   epoch 1 step 200 loss 2.6156 (2829 windows/s)
+00:27:08   epoch 1 step 300 loss 2.6181 (3203 windows/s)
+00:27:14   epoch 1 step 400 loss 2.6190 (3502 windows/s)
+00:27:20   epoch 1 step 500 loss 2.6187 (3638 windows/s)
+00:27:27   epoch 1 step 600 loss 2.6172 (3615 windows/s)
+00:27:38   epoch 1 step 700 loss 2.6157 (3336 windows/s)
+00:27:45   epoch 1 step 800 loss 2.6147 (3389 windows/s)
+00:27:50   epoch 1 step 900 loss 2.6152 (3484 windows/s)
+00:28:00 deep deepofi epoch 1: loss 2.6161, validation macro-F1 [0.3376 0.5021 0.4718]
+00:28:01   epoch 2 step 0 loss 2.5393 (3094 windows/s)
+00:28:06   epoch 2 step 100 loss 2.6063 (4442 windows/s)
+00:28:12   epoch 2 step 200 loss 2.6050 (4518 windows/s)
+00:28:17   epoch 2 step 300 loss 2.6047 (4578 windows/s)
+00:28:22   epoch 2 step 400 loss 2.6038 (4674 windows/s)
+00:28:28   epoch 2 step 500 loss 2.6049 (4733 windows/s)
+00:28:33   epoch 2 step 600 loss 2.6046 (4718 windows/s)
+00:28:38   epoch 2 step 700 loss 2.6055 (4722 windows/s)
+00:28:44   epoch 2 step 800 loss 2.6047 (4729 windows/s)
+00:28:49   epoch 2 step 900 loss 2.6043 (4773 windows/s)
+00:28:58 deep deepofi epoch 2: loss 2.6042, validation macro-F1 [0.3469 0.5074 0.3955]
+00:28:58   epoch 3 step 0 loss 2.6623 (2182 windows/s)
+00:29:04   epoch 3 step 100 loss 2.6063 (4167 windows/s)
+00:29:10   epoch 3 step 200 loss 2.6025 (4187 windows/s)
+00:29:16   epoch 3 step 300 loss 2.6041 (4098 windows/s)
+00:29:23   epoch 3 step 400 loss 2.6046 (4067 windows/s)
+00:29:30   epoch 3 step 500 loss 2.6055 (3965 windows/s)
+00:29:37   epoch 3 step 600 loss 2.6061 (3880 windows/s)
+00:29:45   epoch 3 step 700 loss 2.6055 (3783 windows/s)
+00:30:04   epoch 3 step 800 loss 2.6047 (3078 windows/s)
+00:30:14   epoch 3 step 900 loss 2.6048 (3008 windows/s)
+00:30:26 deep deepofi epoch 3: loss 2.6033, validation macro-F1 [0.3468 0.5063 0.4569]
+00:30:27   epoch 4 step 0 loss 2.5798 (555 windows/s)
+00:30:33   epoch 4 step 100 loss 2.6053 (3711 windows/s)
+00:30:39   epoch 4 step 200 loss 2.6056 (3943 windows/s)
+00:30:45   epoch 4 step 300 loss 2.6057 (4051 windows/s)
+00:30:51   epoch 4 step 400 loss 2.6027 (4142 windows/s)
+00:30:57   epoch 4 step 500 loss 2.6023 (4148 windows/s)
+00:31:03   epoch 4 step 600 loss 2.6031 (4159 windows/s)
+00:31:10   epoch 4 step 700 loss 2.6045 (4116 windows/s)
+00:31:17   epoch 4 step 800 loss 2.6029 (4075 windows/s)
+00:31:23   epoch 4 step 900 loss 2.6026 (4091 windows/s)
+00:31:32 deep deepofi epoch 4: loss 2.6021, validation macro-F1 [0.3298 0.4737 0.4421]
+00:31:32   epoch 5 step 0 loss 2.6146 (2984 windows/s)
+00:31:38   epoch 5 step 100 loss 2.5917 (4643 windows/s)
+00:31:43   epoch 5 step 200 loss 2.5952 (4516 windows/s)
+00:31:49   epoch 5 step 300 loss 2.5950 (4536 windows/s)
+00:31:55   epoch 5 step 400 loss 2.5970 (4535 windows/s)
+00:32:00   epoch 5 step 500 loss 2.5978 (4526 windows/s)
+00:32:06   epoch 5 step 600 loss 2.5978 (4563 windows/s)
+00:32:11   epoch 5 step 700 loss 2.5968 (4613 windows/s)
+00:32:16   epoch 5 step 800 loss 2.5966 (4661 windows/s)
+00:32:21   epoch 5 step 900 loss 2.5973 (4688 windows/s)
+00:32:30 deep deepofi epoch 5: loss 2.5972, validation macro-F1 [0.3596 0.5056 0.4819]
+00:32:30   epoch 6 step 0 loss 2.6427 (2648 windows/s)
+00:32:37   epoch 6 step 100 loss 2.5843 (3633 windows/s)
+00:32:44   epoch 6 step 200 loss 2.5890 (3796 windows/s)
+00:32:49   epoch 6 step 300 loss 2.5910 (4063 windows/s)
+00:32:54   epoch 6 step 400 loss 2.5941 (4269 windows/s)
+00:32:59   epoch 6 step 500 loss 2.5961 (4408 windows/s)
+00:33:04   epoch 6 step 600 loss 2.5953 (4464 windows/s)
+00:33:10   epoch 6 step 700 loss 2.5931 (4530 windows/s)
+00:33:15   epoch 6 step 800 loss 2.5933 (4590 windows/s)
+00:33:20   epoch 6 step 900 loss 2.5933 (4650 windows/s)
+00:33:28 deep deepofi epoch 6: loss 2.5923, validation macro-F1 [0.3506 0.4972 0.4475]
+00:33:28   epoch 7 step 0 loss 2.4903 (2833 windows/s)
+00:33:34   epoch 7 step 100 loss 2.5983 (4019 windows/s)
+00:33:40   epoch 7 step 200 loss 2.5976 (4218 windows/s)
+00:33:46   epoch 7 step 300 loss 2.5980 (4175 windows/s)
+00:33:52   epoch 7 step 400 loss 2.5975 (4227 windows/s)
+00:33:58   epoch 7 step 500 loss 2.5960 (4306 windows/s)
+00:34:03   epoch 7 step 600 loss 2.5955 (4357 windows/s)
+00:34:09   epoch 7 step 700 loss 2.5940 (4387 windows/s)
+00:34:15   epoch 7 step 800 loss 2.5933 (4380 windows/s)
+00:34:20   epoch 7 step 900 loss 2.5936 (4386 windows/s)
+00:34:29 deep deepofi epoch 7: loss 2.5936, validation macro-F1 [0.3722 0.5126 0.4374]
+00:34:29   epoch 8 step 0 loss 2.6841 (3190 windows/s)
+00:34:35   epoch 8 step 100 loss 2.5945 (4807 windows/s)
+00:34:40   epoch 8 step 200 loss 2.5896 (4864 windows/s)
+00:34:45   epoch 8 step 300 loss 2.5917 (4863 windows/s)
+00:34:50   epoch 8 step 400 loss 2.5894 (4913 windows/s)
+00:34:55   epoch 8 step 500 loss 2.5885 (4965 windows/s)
+00:35:00   epoch 8 step 600 loss 2.5888 (4966 windows/s)
+00:35:05   epoch 8 step 700 loss 2.5888 (4993 windows/s)
+00:35:10   epoch 8 step 800 loss 2.5901 (5037 windows/s)
+00:35:15   epoch 8 step 900 loss 2.5900 (5052 windows/s)
+00:35:23 deep deepofi epoch 8: loss 2.5907, validation macro-F1 [0.3585 0.4971 0.4406]
+00:35:23   epoch 9 step 0 loss 2.6036 (2661 windows/s)
+00:35:28   epoch 9 step 100 loss 2.5887 (4656 windows/s)
+00:35:34   epoch 9 step 200 loss 2.5898 (4606 windows/s)
+00:35:39   epoch 9 step 300 loss 2.5906 (4744 windows/s)
+00:35:44   epoch 9 step 400 loss 2.5887 (4780 windows/s)
+00:35:49   epoch 9 step 500 loss 2.5880 (4795 windows/s)
+00:35:54   epoch 9 step 600 loss 2.5885 (4835 windows/s)
+00:36:00   epoch 9 step 700 loss 2.5889 (4839 windows/s)
+00:36:05   epoch 9 step 800 loss 2.5885 (4862 windows/s)
+00:36:10   epoch 9 step 900 loss 2.5877 (4897 windows/s)
+00:36:18 deep deepofi epoch 9: loss 2.5883, validation macro-F1 [0.3529 0.5111 0.4655]
+00:36:18   epoch 10 step 0 loss 2.6278 (2473 windows/s)
+00:36:25   epoch 10 step 100 loss 2.5753 (3362 windows/s)
+00:36:34   epoch 10 step 200 loss 2.5845 (3117 windows/s)
+00:36:41   epoch 10 step 300 loss 2.5856 (3359 windows/s)
+00:36:47   epoch 10 step 400 loss 2.5878 (3516 windows/s)
+00:36:53   epoch 10 step 500 loss 2.5881 (3593 windows/s)
+00:37:00   epoch 10 step 600 loss 2.5870 (3643 windows/s)
+00:37:06   epoch 10 step 700 loss 2.5871 (3722 windows/s)
+00:37:12   epoch 10 step 800 loss 2.5868 (3807 windows/s)
+00:37:17   epoch 10 step 900 loss 2.5871 (3889 windows/s)
+00:37:27 deep deepofi epoch 10: loss 2.5872, validation macro-F1 [0.354  0.51   0.4815]
+00:37:27 deep: early stop
+00:37:27 deep: predicting validation and test days every 4 steps with the best epoch
+00:37:53   predicted 10302019
+00:38:19   predicted 12302019
+00:38:44   predicted 01302020
+   model horizon  accuracy  macro_f1  direction_hit_when_moved_and_called  share_flat_true
+   ridge      1s  0.563835  0.426179                             0.626928         0.633054
+   ridge      5s  0.460414  0.450830                             0.563979         0.374445
+   ridge     30s  0.439381  0.426362                             0.524034         0.175649
+ deepofi      1s  0.660386  0.434734                             0.535553         0.633054
+ deepofi      5s  0.543097  0.526147                             0.533734         0.374445
+ deepofi     30s  0.478597  0.490141                             0.515874         0.175649
+ deeplob      1s  0.662963  0.465151                             0.557212         0.633054
+ deeplob      5s  0.549513  0.532777                             0.538785         0.374445
+ deeplob     30s  0.490856  0.505395                             0.521177         0.175649
+majority      1s  0.633054  0.258434                                  NaN         0.633054
+majority      5s  0.374445  0.181622                                  NaN         0.374445
+majority     30s  0.175649  0.099604                                  NaN         0.175649
+                    costs   model horizon  val_net_ticks  threshold  test_trades  gross_per_trade  spread_per_trade  fees_per_trade  net_per_trade  test_net_ticks  hit_rate
+frictionless (mid to mid)   ridge      1s        48319.5       0.00       934960         0.139418          0.000000             0.0       0.139418        130350.0  0.216353
+frictionless (mid to mid)   ridge      5s        20123.0       0.00       186960         0.248192          0.000000             0.0       0.248192         46402.0  0.349567
+frictionless (mid to mid)   ridge     30s         4928.0       0.00        31160         0.229846          0.000000             0.0       0.229846          7162.0  0.436104
+frictionless (mid to mid) deepofi      1s        49975.5       0.00       934960         0.142152          0.000000             0.0       0.142152        132906.0  0.210237
+frictionless (mid to mid) deepofi      5s        27228.0       0.00       186960         0.328996          0.000000             0.0       0.328996         61509.0  0.345881
+frictionless (mid to mid) deepofi     30s         8067.0       0.00        31160         0.392330          0.000000             0.0       0.392330         12225.0  0.433408
+frictionless (mid to mid) deeplob      1s        46726.5       0.00       934960         0.110983          0.000000             0.0       0.110983        103765.0  0.218085
+frictionless (mid to mid) deeplob      5s        18499.0       0.00       186960         0.212243          0.000000             0.0       0.212243         39681.0  0.351803
+frictionless (mid to mid) deeplob     30s         7553.0       0.00        31160         0.425385          0.000000             0.0       0.425385         13255.0  0.439891
+frictionless (mid to mid)  oracle      1s       270953.5       0.00       343423         2.453645          0.000000             0.0       2.453645        842638.0  1.000000
+frictionless (mid to mid)  oracle      5s       173415.0       0.00       117146         4.432085          0.000000             0.0       4.432085        519201.0  1.000000
+frictionless (mid to mid)  oracle     30s        86478.0       0.00        25622         9.811295          0.000000             0.0       9.811295        251385.0  1.000000
+           spread, no fee   ridge      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee   ridge      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee   ridge     30s            8.0       0.50          141        -0.882979          1.443262             0.0      -2.326241          -328.0  0.375887
+           spread, no fee deepofi      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deepofi      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deepofi     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deeplob      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deeplob      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+           spread, no fee deeplob     30s            1.0       0.25            3        -0.166667          1.166667             0.0      -1.333333            -4.0  0.333333
+           spread, no fee  oracle      1s        16004.0       0.00        50257         4.356806          3.128062             0.0       1.228744         61753.0  1.000000
+           spread, no fee  oracle      5s        25766.0       0.00        37914         6.645289          3.908147             0.0       2.737142        103776.0  1.000000
+           spread, no fee  oracle     30s        32198.0       0.00        15222        13.301504          5.577421             0.0       7.724084        117576.0  1.000000
+       spread + taker fee   ridge      1s            2.4       0.25            9         0.277778          2.722222             0.6      -3.044444           -27.4  0.333333
+       spread + taker fee   ridge      5s            8.2       0.25           20         1.250000          1.450000             0.6      -0.800000           -16.0  0.450000
+       spread + taker fee   ridge     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deepofi      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deepofi      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deepofi     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob      1s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob      5s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee deeplob     30s            0.0        NaN            0              NaN               NaN             NaN            NaN             0.0       NaN
+       spread + taker fee  oracle      1s         9108.4       0.00        35260         5.254637          3.538188             0.6       1.116449         39366.0  1.000000
+       spread + taker fee  oracle      5s        18489.8       0.00        32024         7.367490          4.164018             0.6       2.603472         83373.6  1.000000
+       spread + taker fee  oracle     30s        28203.8       0.00        14294        13.969533          5.770638             0.6       7.598895        108618.6  1.000000
+# finished Thu Oct 22 00:39:42 PDT 2026

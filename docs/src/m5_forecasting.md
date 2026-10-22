@@ -100,16 +100,16 @@ On the two test days, scored once:
 
 | | Ridge on OFI | DeepLOB | Deep model on OFI |
 |---|---|---|---|
-| Macro-F1, 1 s | 0.426 | **0.465** | 0.412 |
-| Macro-F1, 5 s | 0.451 | **0.533** | 0.523 |
-| Macro-F1, 30 s | 0.426 | **0.505** | 0.482 |
-| Accuracy, 1 s (majority class: 0.633) | 0.564 | **0.663** | 0.658 |
-| Direction right when it calls a move, 1 s | **62.7%** | 55.7% | 53.1% |
+| Macro-F1, 1 s | 0.426 | **0.465** | 0.435 |
+| Macro-F1, 5 s | 0.451 | **0.533** | 0.526 |
+| Macro-F1, 30 s | 0.426 | **0.505** | 0.490 |
+| Accuracy, 1 s (majority class: 0.633) | 0.564 | **0.663** | 0.660 |
+| Direction right when it calls a move, 1 s | **62.7%** | 55.7% | 53.6% |
 | Direction right when it calls a move, 30 s | 52.4% | 52.1% | 51.6% |
 
 DeepLOB is the better classifier at every horizon, beating the linear model by 0.04 to 0.08 in macro-F1. That is consistent with the literature. Where the gain comes from is the important part. DeepLOB's accuracy at one second is ten points higher, but when it calls a move, it gets the direction right *less* often than the linear model: 55.7% against 62.7%. Most of its advantage is in recognising when nothing will happen. That is valuable for classification scores and of no use to a trader, who only acts on calls of direction.
 
-The order-flow deep model sits between the other two. At five seconds it nearly matches DeepLOB (0.523 against 0.533). At one second it falls below even the linear model (0.412 against 0.426), and its direction calls are no better than either model's. So here, unlike in Kolm et al. and Lucchese et al., order-flow inputs did not beat book inputs. The caveat below applies, though: neither deep model was trained to convergence.
+The order-flow deep model sits between the other two. At five seconds it nearly matches DeepLOB (0.526 against 0.533). At one second it is barely above the linear model (0.435 against 0.426), and its direction calls are the least accurate of the three. So here, unlike in Kolm et al. and Lucchese et al., order-flow inputs did not beat book inputs on classification. They did give the larger edge before costs at one and five seconds (see below).
 
 The trading test makes that concrete:
 
@@ -119,11 +119,11 @@ The trading test makes that concrete:
 |---|---|---|---|
 | Ridge, frictionless | 0.14 | 0.25 | 0.23 |
 | DeepLOB, frictionless | 0.11 | 0.21 | 0.43 |
-| Deep model on OFI, frictionless | 0.11 | 0.25 | 0.26 |
+| Deep model on OFI, frictionless | 0.14 | 0.33 | 0.39 |
 | Any model, after the spread (with or without the fee) | no profitable trades | no profitable trades | no profitable trades |
 | Oracle, after the spread and the fee | 1.1 | 2.6 | 7.6 |
 
-All three models have a real edge before costs: on average the mid-price moves their way, by about a tenth to four-tenths of a tick. DeepLOB's edge is clearly larger only at 30 seconds. Most of these stocks trade at a one-tick spread most of the time. The exceptions on the test days are AAPL, FB, BABA, NVDA, TSLA and AMZN, plus MSFT, QCOM and TQQQ on one of the two days. So the cheapest possible round trip costs one tick of spread, and 1.6 ticks with the fee. The edge is several times smaller than the cheapest cost. With the thresholds chosen on the validation day and the spread alone as the cost, the rule finds no trades worth taking at one and five seconds. At thirty seconds the handful it takes lose money: the ridge rule took 141 trades and lost 2.3 ticks per trade, DeepLOB took 3 and the order-flow model none. With the fee added, the ridge rule took 9 and 20 trades at one and five seconds and lost on both.
+All three models have a real edge before costs: on average the mid-price moves their way, by about a tenth to four-tenths of a tick. No model leads everywhere. The order-flow deep model has the largest edge at five seconds (0.33 ticks) and DeepLOB at thirty (0.43). Most of these stocks trade at a one-tick spread most of the time. The exceptions on the test days are AAPL, FB, BABA, NVDA, TSLA and AMZN, plus MSFT, QCOM and TQQQ on one of the two days. So the cheapest possible round trip costs one tick of spread, and 1.6 ticks with the fee. The edge is several times smaller than the cheapest cost. With the thresholds chosen on the validation day and the spread alone as the cost, the rule finds no trades worth taking at one and five seconds. At thirty seconds the handful it takes lose money: the ridge rule took 141 trades and lost 2.3 ticks per trade, DeepLOB took 3 and the order-flow model none. With the fee added, the ridge rule took 9 and 20 trades at one and five seconds and lost on both.
 
 The oracle shows that this isn't because there is nothing to earn. Up to 7.6 ticks per trade survive the costs for anyone who knows the future. None of the models captures enough of the size of the move to clear the spread.
 
@@ -140,7 +140,7 @@ What this study adds is the same verdict reached with a fair linear baseline, a 
 
 ## Limits of the study
 
-- **DeepLOB was trained on a laptop under memory pressure.** The Mac was swapping heavily, so DeepLOB saw about 1.8 million training windows, roughly a quarter of one pass over the training data, and its validation score was noisy and had not clearly levelled off when its time budget ended. The order-flow model stopped early after five passes of 256,000 windows (1.3 million in all), because its validation score had not improved for three passes. The same memory pressure had cut its speed from about 2,000 windows a second to under 100 partway through. Retraining both deep models on an idle machine is the obvious robustness check, and the driver supports it (`scripts/m5_train.sh 300`). Given how far every model's edge falls below the cost of a round trip, it is unlikely to change the trading verdict. It could change the classification ranking.
+- **Training on a laptop.** Both deep models were trained on an 8 GB laptop, in passes of 256,000 windows sampled from the 7.5 million training windows. A first run was cut short by memory pressure. A second run gave each model more patience before stopping: training stopped only after five passes in a row without improvement on the validation day. DeepLOB stopped after 11 passes (2.8 million windows). Its validation score had peaked at the sixth pass, the same model the first run had kept, so its results did not change; training is seeded and exactly reproducible. The order-flow model also stopped after 11 passes. Its best pass improved its test scores slightly over the first run (macro-F1 up by 0.003 to 0.023, edge before costs up to 0.39 ticks), and those are the numbers reported here. Validation performance had levelled off for both. Bigger models or many more days of data might still help. No model's edge comes within a factor of three of the cost of a round trip, so neither change is likely to alter the trading verdict.
 - **Two test days** are a small test set for the trading result, and they are not a market-regime study.
 - **Only taking liquidity is tested.** A passive strategy that posts limit orders earns the spread instead of paying it, but then the question becomes whether it is filled. M4 showed that L2 models of queue position, which such a backtest would need, are biased in exactly the cases that matter. Testing passive execution properly needs the L3 queue simulation this project's engine provides, which is a natural next study.
 - **The grid is 250 ms in clock time,** not event time. Some very fast signal is averaged away.
