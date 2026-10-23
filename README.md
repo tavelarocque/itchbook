@@ -1,5 +1,7 @@
 # itchbook
 
+[![ci](https://github.com/tavelarocque/itchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/tavelarocque/itchbook/actions/workflows/ci.yml)
+
 A C++20 engine that rebuilds NASDAQ's full order-by-order (L3) book from real TotalView-ITCH 5.0 trading days.
 It is then used as ground truth for two microstructure studies:
 
@@ -12,7 +14,16 @@ It is then used as ground truth for two microstructure studies:
 - **Queue study.** Across 7.5 million tracked orders, 85% of cancelled volume came from *behind* the order, not ahead of it. The pro-rata assumption behind common L2 backtest models is far too optimistic. Behind 10–24 orders, one in six of its simulated fills never happened.
 - **Forecasting study.** Seven trading days, 20 symbols, strictly out-of-time test days. DeepLOB beats a ridge regression on multi-level order-flow imbalance (OFI) on macro-F1, 0.47–0.53 against 0.43–0.45. But both models' edge is 0.1–0.4 ticks per trade. Even on the 1-tick-spread stocks that make up most of the universe, a round trip costs 1.6 ticks: one tick of spread plus 0.6 ticks of taker fees. So neither model finds a single profitable trade after costs.
 
-Each milestone has a walkthrough in `docs/` that explains the method and every design choice.
+Each milestone has a walkthrough that explains the method and every design choice:
+
+| Walkthrough | Covers |
+|---|---|
+| [M0 Setup](docs/m0_setup.pdf) | build, CI, sanitizers, test and fuzz tooling, data integrity |
+| [M1 Parser](docs/m1_parser.pdf) | zero-copy ITCH 5.0 views, streaming gzip, verification against an independent parser |
+| [M2 Book](docs/m2_book.pdf) | the L3 reference book and its whole-market cross-check |
+| [M3 Performance](docs/m3_performance.pdf) | `FastBook`, each optimisation step, the CppTrader benchmark |
+| [M4 Queue study](docs/m4_queue.pdf) | L2 queue-position models against the true L3 queue |
+| [M5 Forecasting](docs/m5_forecasting.pdf) | DeepLOB and an order-flow model against an OFI baseline, after costs |
 
 ## Status
 
@@ -146,14 +157,17 @@ src/                     source implementations
 include/itchbook/book/   ReferenceBook (oracle), FastBook, order indexes, BookBuilder
 include/itchbook/bench/  cycle-counter clock, latency histogram
 include/itchbook/queue/  L2 queue models and the QueueStudy engine
+include/itchbook/lob/    250 ms book and order-flow recorder for M5
 tools/itch_stats.cpp     counts, fingerprint and throughput for a file
 tools/itch_book.cpp      L3 book replay: counters, checksums, snapshots
 tools/itch_bench.cpp     book throughput and per-update latency
 tools/itch_queue.cpp     M4 queue-position study
+tools/itch_lob.cpp       M5 feature extraction (book levels, multi-level OFI, signed volume)
 tools/queue/             M4 analysis (pandas, matplotlib)
+tools/m5/                M5 ridge baseline, DeepLOB and order-flow models (PyTorch), cost-aware evaluation
 tools/itchref/           independent Python reference parser and cross-checks
 tests/  bench/  fuzz/    GoogleTest + RapidCheck, Google Benchmark, libFuzzer
 docs/                    walkthroughs (one PDF per milestone)
 scripts/                 data download, benchmarks, public-repo sync, walkthrough renderer
-results/                 raw benchmark output
+results/                 raw benchmark and study results
 ```
