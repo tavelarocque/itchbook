@@ -74,6 +74,11 @@ add_executable(itch-probe tools/probe/exec_probe.cpp)
 target_link_libraries(itch-probe PRIVATE itchbook::core)
 itchbook_set_warnings(itch-probe)
 
+# Per-execution tape: one record per E, C, P, Q and B message, quote read before each.
+add_executable(itch-trades tools/itch_trades.cpp)
+target_link_libraries(itch-trades PRIVATE itchbook::core)
+itchbook_set_warnings(itch-trades)
+
 if(ITCHBOOK_BUILD_TESTS OR ITCHBOOK_BUILD_BENCH)
   include(Dependencies)
 endif()

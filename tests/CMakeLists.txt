@@ -8,6 +8,7 @@ add_executable(itchbook_tests
   test_queue.cpp
   test_lob.cpp
   test_price_location.cpp
+  test_tape.cpp
 )
 target_include_directories(itchbook_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(itchbook_tests PRIVATE itchbook::core GTest::gtest_main rapidcheck rapidcheck_gtest Threads::Threads)
@@ -31,5 +32,9 @@ if(Python3_FOUND)
   add_test(NAME book_matches_python_reference
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/itchref/crosscheck_book.py
             --itch-book $<TARGET_FILE:itch-book> --synthetic 50000
+  )
+  add_test(NAME tape_matches_python_reference
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/itchref/tape_crosscheck.py
+            --itch-trades $<TARGET_FILE:itch-trades> --synthetic 30000
   )
 endif()
