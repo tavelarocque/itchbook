@@ -16,8 +16,8 @@ deep = ["torch>=2.5"]
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["tools/itchref"]
-pythonpath = ["tools/itchref"]
+testpaths = ["tools/itchref", "tools/tape"]
+pythonpath = ["tools/itchref", "tools/tape"]
 
 [tool.ruff]
 line-length = 120
@@ -27,4 +27,4 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze", "lob", "deep", "run"]
+known-first-party = ["tape", "runs", "itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze", "lob", "deep", "run"]
