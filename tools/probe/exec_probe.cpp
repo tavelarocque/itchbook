@@ -1,5 +1,7 @@
 // exec_probe: read-only measurement of how executions appear in an ITCH day.
-// Not part of the repo. Build: c++ -std=c++20 -O2 -I include exec_probe.cpp src/source.cpp src/fast_book.cpp src/reference_book.cpp -lz
+// Built as itch-probe. Usage: itch-probe DAY.NASDAQ_ITCH50.gz [PER_SYMBOL.tsv]
+// The summary goes to stdout; the optional second argument receives one row per symbol
+// (directory fields, displayed runs, hidden P executions; regular phase, state T only).
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -12,6 +14,7 @@
 #include <vector>
 
 #include "itchbook/book/fast_book.hpp"
+#include "itchbook/book/price_location.hpp"
 #include "itchbook/io/source.hpp"
 #include "itchbook/itch/stream.hpp"
 
@@ -59,6 +62,16 @@ struct H : itch::NullHandler {
   std::array<std::uint32_t, 65536> run_len{};
   std::map<std::uint32_t, ull> run_hist;
   ull mixed_runs = 0, p_same_ts_as_run = 0, p_regular_t = 0;
+  // displayed quote just before each run's first fill (0 = side empty)
+  std::array<book::Price, 65536> run_bid{}, run_ask{};
+  // hidden P executions, regular phase, state T: price location vs the displayed quote
+  std::map<std::string, std::pair<ull, ull>> p_loc;
+  // symbol directory and per-symbol counts (regular phase, state T)
+  std::array<std::string, 65536> sym;
+  std::array<char, 65536> mcat{}, iclass{}, etp{};
+  std::array<ull, 65536> sym_runs{}, sym_runs_trim{}, sym_disp_exec{}, sym_disp_shares{}, sym_p{}, sym_p_shares{};
+  static constexpr std::uint64_t kTrimLo = 36'000'000'000'000ULL;  // 10:00:00 ET
+  static constexpr std::uint64_t kTrimHi = 55'800'000'000'000ULL;  // 15:30:00 ET
 
   H() : bk(std::size_t{1} << 21U) {
     tstate.fill('?');
@@ -109,11 +122,15 @@ struct H : itch::NullHandler {
   void close_run(std::uint16_t l) {
     if (run_len[l] > 0) {
       ++run_hist[std::min<std::uint32_t>(run_len[l], 50)];
+      ++sym_runs[l];
+      if (run_ts[l] >= kTrimLo && run_ts[l] < kTrimHi) ++sym_runs_trim[l];
       run_len[l] = 0;
     }
   }
-  void displayed_exec(std::uint16_t l, std::uint64_t ts, char side) {
+  void displayed_exec(std::uint16_t l, std::uint64_t ts, char side, std::uint32_t n) {
     if (!rt(l)) return;
+    ++sym_disp_exec[l];
+    sym_disp_shares[l] += n;
     if (run_len[l] > 0 && run_ts[l] == ts) {
       ++run_len[l];
       if (run_side[l] != side) ++mixed_runs;
@@ -127,8 +144,18 @@ struct H : itch::NullHandler {
 
   void on(const itch::SystemEvent& m) {
     clock(m);
-    if (m.event_code() == 'Q') { phase = 1; std::printf("system_event\tQ\t%llu\n", (ull)m.timestamp()); }
-    if (m.event_code() == 'M') { phase = 2; std::printf("system_event\tM\t%llu\n", (ull)m.timestamp()); }
+    if (m.event_code() == 'Q') { phase = 1; std::printf("system_event\tQ\t%llu\n", static_cast<ull>(m.timestamp())); }
+    if (m.event_code() == 'M') { phase = 2; std::printf("system_event\tM\t%llu\n", static_cast<ull>(m.timestamp())); }
+  }
+  void on(const itch::StockDirectory& m) {
+    clock(m);
+    const auto l = m.stock_locate();
+    auto s = m.stock();
+    while (!s.empty() && s.back() == ' ') s.remove_suffix(1);
+    sym[l] = std::string(s);
+    mcat[l] = m.market_category();
+    iclass[l] = m.issue_classification();
+    etp[l] = m.etp_flag();
   }
   void on(const itch::StockTradingAction& m) {
     clock(m);
@@ -149,8 +176,15 @@ struct H : itch::NullHandler {
     const auto r = bk.resting(ref);
     const char side = r ? (r->side == book::Side::buy ? 'B' : 'S') : '?';
     ex.push_back({match, ts, n, l, type, printable, side, phase, static_cast<std::uint8_t>(tstate[l] == 'T')});
+    if ((type == 'E' || printable == 'Y') && rt(l) && !(run_len[l] > 0 && run_ts[l] == ts)) {
+      // first fill of a new run: keep the quote it executed against
+      const auto b = bk.best(l, book::Side::buy);
+      const auto a = bk.best(l, book::Side::sell);
+      run_bid[l] = b ? b->price : 0;
+      run_ask[l] = a ? a->price : 0;
+    }
     bk.execute(l, ref, n);
-    if (type == 'E' || printable == 'Y') displayed_exec(l, ts, side);
+    if (type == 'E' || printable == 'Y') displayed_exec(l, ts, side, n);
     book_event(l, ts);
   }
   void on(const itch::OrderExecuted& m) {
@@ -183,7 +217,25 @@ struct H : itch::NullHandler {
                   static_cast<std::uint8_t>(tstate[l] == 'T')});
     if (rt(l)) {
       ++p_regular_t;
-      if (run_len[l] > 0 && run_ts[l] == m.timestamp()) ++p_same_ts_as_run;
+      const bool with_run = run_len[l] > 0 && run_ts[l] == m.timestamp();
+      if (with_run) ++p_same_ts_as_run;
+      ++sym_p[l];
+      sym_p_shares[l] += m.shares();
+      book::Price bid = 0;
+      book::Price ask = 0;
+      if (with_run) {  // the quote before the run's first displayed fill
+        bid = run_bid[l];
+        ask = run_ask[l];
+      } else {  // P does not change the displayed book, so this is the pre-trade quote
+        const auto b = bk.best(l, book::Side::buy);
+        const auto a = bk.best(l, book::Side::sell);
+        bid = b ? b->price : 0;
+        ask = a ? a->price : 0;
+      }
+      const auto loc = book::price_location(m.price(), bid, ask);
+      auto& v = p_loc[std::string(with_run ? "with_run" : "standalone") + "\t" + std::string(book::to_string(loc))];
+      ++v.first;
+      v.second += m.shares();
     }
   }
   void on(const itch::CrossTrade& m) {
@@ -202,14 +254,17 @@ struct H : itch::NullHandler {
 };
 
 int main(int argc, char** argv) {
-  if (argc < 2) return 1;
+  if (argc < 2) {
+    std::fprintf(stderr, "usage: itch-probe DAY.NASDAQ_ITCH50.gz [PER_SYMBOL.tsv]\n");
+    return 1;
+  }
   auto src = io::open_source(argv[1]);
   auto h = std::make_unique<H>();
   const auto st = itch::parse_stream(*src, *h);
   for (std::size_t l = 0; l < 65536; ++l) h->close_run(static_cast<std::uint16_t>(l));
   const char* ph[3] = {"pre", "regular", "post"};
-  std::printf("messages\t%llu\tclean\t%d\n", (ull)st.messages, st.clean() ? 1 : 0);
-  std::printf("ts_regressions\t%llu\tts_ties_with_previous_message\t%llu\n", (ull)h->regress, (ull)h->ties);
+  std::printf("messages\t%llu\tclean\t%d\n", static_cast<ull>(st.messages), st.clean() ? 1 : 0);
+  std::printf("ts_regressions\t%llu\tts_ties_with_previous_message\t%llu\n", static_cast<ull>(h->regress), static_cast<ull>(h->ties));
 
   std::unordered_set<std::uint64_t> qm;
   for (const auto& q : h->qs) qm.insert(q.match);
@@ -279,6 +334,11 @@ int main(int argc, char** argv) {
   }
   std::printf("P_regular_T\t%llu\tP_with_same_ts_as_a_displayed_run\t%llu\n", h->p_regular_t, h->p_same_ts_as_run);
 
+  std::printf("\n# hidden P executions, regular phase, state T: price vs the displayed quote. with_run: same symbol and\n"
+              "# timestamp as a displayed run, quote taken before the run's first fill; standalone: quote at the P message.\n"
+              "# Columns: group, location, count, shares\n");
+  for (const auto& [k, v] : h->p_loc) std::printf("P_location\t%s\t%llu\t%llu\n", k.c_str(), v.first, v.second);
+
   // ---- cross attribution: executions at the same (symbol, timestamp) as a Q print, or within 1 ms before it
   {
     std::unordered_map<std::uint64_t, char> qat;  // key locate<<48 | ts -> cross type
@@ -321,7 +381,24 @@ int main(int argc, char** argv) {
       if (q.type == 'O') { qo_min = std::min(qo_min, q.ts); qo_max = std::max(qo_max, q.ts); }
       if (q.type == 'C') { qc_min = std::min(qc_min, q.ts); qc_max = std::max(qc_max, q.ts); }
     }
-    std::printf("Q_open_ts_range_ns\t%llu\t%llu\tQ_close_ts_range_ns\t%llu\t%llu\n", (ull)qo_min, (ull)qo_max, (ull)qc_min, (ull)qc_max);
+    std::printf("Q_open_ts_range_ns\t%llu\t%llu\tQ_close_ts_range_ns\t%llu\t%llu\n", static_cast<ull>(qo_min), static_cast<ull>(qo_max), static_cast<ull>(qc_min), static_cast<ull>(qc_max));
+  }
+
+  if (argc >= 3) {
+    std::FILE* f = std::fopen(argv[2], "w");
+    if (f == nullptr) {
+      std::fprintf(stderr, "cannot write %s\n", argv[2]);
+      return 1;
+    }
+    std::fprintf(f, "locate\tsymbol\tmarket_category\tissue_classification\tetp_flag\truns\truns_1000_1530\t"
+                    "displayed_execs\tdisplayed_shares\tP_msgs\tP_shares\n");
+    for (std::size_t l = 0; l < 65536; ++l) {
+      if (h->sym[l].empty()) continue;
+      std::fprintf(f, "%zu\t%s\t%c\t%c\t%c\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n", l, h->sym[l].c_str(), h->mcat[l],
+                   h->iclass[l], h->etp[l], h->sym_runs[l], h->sym_runs_trim[l], h->sym_disp_exec[l],
+                   h->sym_disp_shares[l], h->sym_p[l], h->sym_p_shares[l]);
+    }
+    std::fclose(f);
   }
   return 0;
 }

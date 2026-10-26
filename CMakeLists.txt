@@ -69,6 +69,11 @@ add_executable(itch-lob tools/itch_lob.cpp)
 target_link_libraries(itch-lob PRIVATE itchbook::core)
 itchbook_set_warnings(itch-lob)
 
+# Read-only measurement of how executions, crosses and the displayed BBO appear in a day.
+add_executable(itch-probe tools/probe/exec_probe.cpp)
+target_link_libraries(itch-probe PRIVATE itchbook::core)
+itchbook_set_warnings(itch-probe)
+
 if(ITCHBOOK_BUILD_TESTS OR ITCHBOOK_BUILD_BENCH)
   include(Dependencies)
 endif()
