@@ -7,3 +7,12 @@ day	file	bytes	sha256	role
 01302019	01302019.NASDAQ_ITCH50.gz	4764426091	8c97b5b13bc451c012c2466fb7e258da134dab29aa47b67fe7b0088c78e870be	M5 training
 03272019	03272019.NASDAQ_ITCH50.gz	5510131732	7997025b9e09dd6c2ecb0bfa48a856197e6e800711ab67367ee0f2ab724b9ba8	M5 training
 10182019	S101819-v50.txt.gz	3951201663	390acb4df5a01d3d8e6c34557858604ac7c655c8edc0a9e312da3c032c5d8da4	eighth study day (same regime as study days); probe7, tape
+07132021	S071321-v50.txt.gz	5996745270	-	out-of-regime replication set (analysed only after the confirmation run)
+08132021	S081321-v50.txt.gz	4889328604	-	out-of-regime replication set (analysed only after the confirmation run)
+11282025	S112825-v50.txt.gz	4735308661	-	out-of-regime replication set (analysed only after the confirmation run)
+12082025	S120825-v50.txt.gz	8775891119	-	out-of-regime replication set (analysed only after the confirmation run)
+12092025	S120925-v50.txt.gz	7929915419	-	out-of-regime replication set (analysed only after the confirmation run)
+12102025	S121025-v50.txt.gz	11557662295	-	out-of-regime replication set (analysed only after the confirmation run)
+12112025	S121125-v50.txt.gz	10471034001	-	out-of-regime replication set (analysed only after the confirmation run)
+12122025	S121225-v50.txt.gz	12551644054	-	out-of-regime replication set (analysed only after the confirmation run)
+06122026	S061226-v50.txt.gz	17894268560	-	out-of-regime replication set (analysed only after the confirmation run)
