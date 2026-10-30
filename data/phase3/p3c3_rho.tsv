@@ -1,0 +1,145 @@
+# Phase 3c-3 rho* (largest ceiling passing |bias| < 0.02 and coverage >= 0.85)
+tag	cell	gen	estimator	rho_star	in_criterion
+main	Q-T1S1	G0	zeta_V	0.0125	1
+main	Q-T1S1	G0	zeta_K	0.2	1
+main	Q-T1S1	G0	pf	0.2	1
+main	Q-T1S1	G0	Rratio	0.2	1
+main	Q-T1S1	GT	zeta_V	0.0125	1
+main	Q-T1S1	GT	zeta_K	0.2	1
+main	Q-T1S1	GT	pf	0.2	1
+main	Q-T1S1	GT	Rratio	0.2	1
+main	Q-T1S1	GF	zeta_V		1
+main	Q-T1S1	GF	zeta_K		1
+main	Q-T1S1	GF	pf		1
+main	Q-T1S1	GF	Rratio		0
+main	Q-T1S2	G0	zeta_V		1
+main	Q-T1S2	G0	zeta_K	0.2	1
+main	Q-T1S2	G0	pf	0.2	1
+main	Q-T1S2	G0	Rratio	0.05	1
+main	Q-T1S2	GT	zeta_V		1
+main	Q-T1S2	GT	zeta_K	0.2	1
+main	Q-T1S2	GT	pf	0.2	1
+main	Q-T1S2	GT	Rratio	0.05	1
+main	Q-T1S2	GF	zeta_V		1
+main	Q-T1S2	GF	zeta_K		1
+main	Q-T1S2	GF	pf		1
+main	Q-T1S2	GF	Rratio	0.00625	0
+main	Q-T1S3	G0	zeta_V		1
+main	Q-T1S3	G0	zeta_K	0.2	1
+main	Q-T1S3	G0	pf	0.2	1
+main	Q-T1S3	G0	Rratio		1
+main	Q-T1S3	GT	zeta_V		1
+main	Q-T1S3	GT	zeta_K	0.2	1
+main	Q-T1S3	GT	pf	0.2	1
+main	Q-T1S3	GT	Rratio	0.00625	1
+main	Q-T1S3	GF	zeta_V		1
+main	Q-T1S3	GF	zeta_K	0.0125	1
+main	Q-T1S3	GF	pf	0.0125	1
+main	Q-T1S3	GF	Rratio	0.025	0
+main	Q-T2S1	G0	zeta_V		1
+main	Q-T2S1	G0	zeta_K	0.2	1
+main	Q-T2S1	G0	pf	0.2	1
+main	Q-T2S1	G0	Rratio	0.025	1
+main	Q-T2S1	GT	zeta_V		1
+main	Q-T2S1	GT	zeta_K	0.2	1
+main	Q-T2S1	GT	pf	0.2	1
+main	Q-T2S1	GT	Rratio	0.0125	1
+main	Q-T2S1	GF	zeta_V		1
+main	Q-T2S1	GF	zeta_K	0.0125	1
+main	Q-T2S1	GF	pf	0.0125	1
+main	Q-T2S1	GF	Rratio	0.0125	0
+main	Q-T2S2	G0	zeta_V		1
+main	Q-T2S2	G0	zeta_K	0.2	1
+main	Q-T2S2	G0	pf	0.2	1
+main	Q-T2S2	G0	Rratio	0.05	1
+main	Q-T2S2	GT	zeta_V		1
+main	Q-T2S2	GT	zeta_K	0.1	1
+main	Q-T2S2	GT	pf	0.2	1
+main	Q-T2S2	GT	Rratio	0.025	1
+main	Q-T2S2	GF	zeta_V		1
+main	Q-T2S2	GF	zeta_K	0.0125	1
+main	Q-T2S2	GF	pf	0.0125	1
+main	Q-T2S2	GF	Rratio	0.025	0
+main	Q-T2S3	G0	zeta_V	0.2	1
+main	Q-T2S3	G0	zeta_K	0.1	1
+main	Q-T2S3	G0	pf	0.2	1
+main	Q-T2S3	G0	Rratio	0.2	1
+main	Q-T2S3	GT	zeta_V	0.2	1
+main	Q-T2S3	GT	zeta_K		1
+main	Q-T2S3	GT	pf	0.1	1
+main	Q-T2S3	GT	Rratio	0.2	1
+main	Q-T2S3	GF	zeta_V	0.2	1
+main	Q-T2S3	GF	zeta_K	0.05	1
+main	Q-T2S3	GF	pf	0.05	1
+main	Q-T2S3	GF	Rratio	0.025	0
+main	Q-T3S1	G0	zeta_V	0.0125	1
+main	Q-T3S1	G0	zeta_K	0.2	1
+main	Q-T3S1	G0	pf	0.2	1
+main	Q-T3S1	G0	Rratio	0.2	1
+main	Q-T3S1	GT	zeta_V		1
+main	Q-T3S1	GT	zeta_K	0.2	1
+main	Q-T3S1	GT	pf	0.2	1
+main	Q-T3S1	GT	Rratio	0.2	1
+main	Q-T3S1	GF	zeta_V	0.0125	1
+main	Q-T3S1	GF	zeta_K	0.00625	1
+main	Q-T3S1	GF	pf	0.1	1
+main	Q-T3S1	GF	Rratio	0.0125	0
+main	Q-T3S2	G0	zeta_V		1
+main	Q-T3S2	G0	zeta_K	0.2	1
+main	Q-T3S2	G0	pf	0.2	1
+main	Q-T3S2	G0	Rratio	0.2	1
+main	Q-T3S2	GT	zeta_V		1
+main	Q-T3S2	GT	zeta_K	0.2	1
+main	Q-T3S2	GT	pf	0.2	1
+main	Q-T3S2	GT	Rratio	0.2	1
+main	Q-T3S2	GF	zeta_V		1
+main	Q-T3S2	GF	zeta_K		1
+main	Q-T3S2	GF	pf		1
+main	Q-T3S2	GF	Rratio		0
+main	Q-T3S3	G0	zeta_V	0.1	1
+main	Q-T3S3	G0	zeta_K	0.2	1
+main	Q-T3S3	G0	pf	0.2	1
+main	Q-T3S3	G0	Rratio	0.2	1
+main	Q-T3S3	GT	zeta_V	0.1	1
+main	Q-T3S3	GT	zeta_K	0.2	1
+main	Q-T3S3	GT	pf	0.2	1
+main	Q-T3S3	GT	Rratio	0.025	1
+main	Q-T3S3	GF	zeta_V	0.1	1
+main	Q-T3S3	GF	zeta_K		1
+main	Q-T3S3	GF	pf		1
+main	Q-T3S3	GF	Rratio		0
+tail	Q-T1S2	G0	zeta_V		1
+tail	Q-T1S2	G0	zeta_K	0.05	1
+tail	Q-T1S2	G0	pf	0.2	1
+tail	Q-T1S2	G0	Rratio		1
+tail	Q-T1S2	GT	zeta_V		1
+tail	Q-T1S2	GT	zeta_K	0.2	1
+tail	Q-T1S2	GT	pf	0.2	1
+tail	Q-T1S2	GT	Rratio		1
+tail	Q-T1S2	GF	zeta_V		1
+tail	Q-T1S2	GF	zeta_K	0.00625	1
+tail	Q-T1S2	GF	pf	0.2	1
+tail	Q-T1S2	GF	Rratio	0.05	0
+tail	Q-T3S1	G0	zeta_V		1
+tail	Q-T3S1	G0	zeta_K	0.1	1
+tail	Q-T3S1	G0	pf	0.2	1
+tail	Q-T3S1	G0	Rratio	0.025	1
+tail	Q-T3S1	GT	zeta_V		1
+tail	Q-T3S1	GT	zeta_K	0.2	1
+tail	Q-T3S1	GT	pf	0.2	1
+tail	Q-T3S1	GT	Rratio	0.1	1
+tail	Q-T3S1	GF	zeta_V		1
+tail	Q-T3S1	GF	zeta_K	0.05	1
+tail	Q-T3S1	GF	pf	0.2	1
+tail	Q-T3S1	GF	Rratio	0.1	0
+main	Q-T1S1	all	criterion		1
+main	Q-T1S2	all	criterion		1
+main	Q-T1S3	all	criterion		1
+main	Q-T2S1	all	criterion		1
+main	Q-T2S2	all	criterion		1
+main	Q-T2S3	all	criterion		1
+main	Q-T3S1	all	criterion		1
+main	Q-T3S2	all	criterion		1
+main	Q-T3S3	all	criterion		1
+tail	Q-T1S2	all	criterion		1
+tail	Q-T3S1	all	criterion		1

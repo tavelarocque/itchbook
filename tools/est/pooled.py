@@ -338,11 +338,14 @@ def intervals(v, k, z, Nsd, specs, rng: np.random.Generator, n_boot: int = N_BOO
 
 # ---- Phase 3c-2: the k-tilde normalisation (primary) ---------------------------------------
 #
-# norm="tilde" (primary since 3c-2): per stock s, with day-averaged single-run moments Sbar(1), Vbar_a(1),
+# norm="tilde" (primary since 3c-2; pooling of v revised in 3c-3): per stock s, with day-averaged single-run
+# moments Sbar(1), Vbar_a(1),
 #     v_a(T) = Vbar_a(T) / (T Vbar_a(1)),   k~_a(T) = Kbar_a(T) / (T sqrt(Sbar(1) Vbar_a(1))),
 # where Xbar is the stock's day average (equal weight per day with a value) under the replicate's day
-# weights. No stock-day is excluded for the sign of K_a(1). Pooling: equal weight per stock, matched
-# sets, chained logs: between consecutive kept horizons T_p < T_t of a range, the increment is
+# weights. No stock-day is excluded for the sign of K_a(1). Pooling of v (3c-3): the equal-weight mean
+# over stocks of each stock's own log increment, matched sets, chained (zeta_mean_of_logs). Pooling of
+# k~ (it can be negative per stock): equal weight per stock, matched sets, chained logs of matched means:
+# between consecutive kept horizons T_p < T_t of a range, the increment is
 #     log( mean_s x_s(T_t) ) - log( mean_s x_s(T_p) ),
 # both means over the SAME stocks (eligible at T_t, with values at both). The logs are of means of curves
 # already normalised by each stock's own constants, never of raw cross-stock averages. A horizon whose
@@ -457,6 +460,21 @@ def chain_zeta(x, ws, Mt, T_grid=T_GRID2, ranges=RANGES2):
     return zeta, pooled, n_kept
 
 
+def zeta_mean_of_logs(v, ws, Ns, specs, T_grid=T_GRID2, ranges=RANGES2):
+    """zeta from the equal-weight mean over stocks of each stock's own log increment (days averaged within
+    the stock first), on matched sets (eligibility at the upper horizon), chained (Phase 3c-3 rule for v,
+    which is positive for every stock)."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        lv = np.where(v > 0, np.log(np.where(v > 0, v, 1.0)), np.nan)
+    dlt, _ = _increments(lv, ws, increment_masks(Ns, T_grid, specs))
+    Wr = range_weights(T_grid, ranges)
+    zeta = np.full((len(ws), v.shape[2], len(ranges), len(specs)), np.nan)
+    for r in range(len(ranges)):
+        js = np.flatnonzero(Wr[r])
+        zeta[:, :, r, :] = 1 + np.einsum("bajm,j->bam", dlt[:, :, js, :], Wr[r, js])
+    return zeta
+
+
 def core2(raw: Raw, Wd, Ws, specs, norm: str = "tilde", T_grid=T_GRID2, a_grid=A_GRID2, ranges=RANGES2,
           a_max=A_MAX2) -> dict:
     """The pooled estimands of ESTIMANDS2 (and R, a_star, diagnostics) with a leading replicate axis."""
@@ -476,7 +494,7 @@ def core2(raw: Raw, Wd, Ws, specs, norm: str = "tilde", T_grid=T_GRID2, a_grid=A
     Mt = masks(Ns, T_grid, specs)
     v, k = stock_curves_tilde(raw.V, raw.K, raw.Sm, wd, T_grid)
     out = {}
-    out["zeta_V"], _, out["kept_V"] = chain_zeta(v, ws, Mt, T_grid, ranges)
+    out["zeta_V"] = zeta_mean_of_logs(v, ws, Ns, specs, T_grid, ranges)
     out["zeta_K"], pooled_k, out["kept_K"] = chain_zeta(k, ws, Mt, T_grid, ranges)
     out["dropped_K"] = ~(pooled_k > 0) & np.isfinite(pooled_k)  # (B, na, nT, nm): pooled k~ not positive
     zs = _stock_mean(raw.z, wd)

@@ -93,17 +93,19 @@ def check_flow_unchanged():
 def check_gt_c0_is_g0():
     Nsd = np.array([[50, 80], [120, 30]])
     eps, q = flow(Nsd.ravel())
-    a = PC.semi_synthetic(eps, q, Nsd, "G0", CELL, np.random.default_rng(6), params={"beta": 0.45})
-    b = PC.semi_synthetic(eps, q, Nsd, "GT", CELL, np.random.default_rng(6),
-                          params={"beta_max": 0.45, "c": 0.0, "l_star": 4.0, "psi": 0.5})
-    assert np.array_equal(a.lm, b.lm)
+    for fresh in (True, False):
+        a = PC.semi_synthetic(eps, q, Nsd, "G0", CELL, np.random.default_rng(6), params={"beta": 0.45}, fresh=fresh)
+        b = PC.semi_synthetic(eps, q, Nsd, "GT", CELL, np.random.default_rng(6),
+                              params={"beta_max": 0.45, "c": 0.0, "l_star": 4.0, "psi": 0.5}, fresh=fresh)
+        assert np.array_equal(a.lm, b.lm)
 
 
 def check_response_uses_raw_sizes():
     """The mid equals the G0 response computed from the raw sizes, while the moments' sizes are clipped."""
     Nsd = np.array([[200, 300], [250, 150]])
     eps, q = flow(Nsd.ravel())
-    p = PC.semi_synthetic(eps, q, Nsd, "G0", CELL, np.random.default_rng(7), params={"beta": 0.4, "noise": 0.0})
+    p = PC.semi_synthetic(eps, q, Nsd, "G0", CELL, np.random.default_rng(7), params={"beta": 0.4, "noise": 0.0},
+                          fresh=True)
     want = PC.response("G0", CELL, eps, q, p.starts, p.lengths, None, {"beta": 0.4, "noise": 0.0})
     assert np.allclose(p.lm, want)
     clipped = PC.response("G0", CELL, eps, p.q_mom, p.starts, p.lengths, None, {"beta": 0.4, "noise": 0.0})
@@ -143,8 +145,8 @@ BUGS = [
     Bug("GT bins sharing a beta convolved once each", "response",
         "for beta in np.unique(betas):", "for beta in betas:", ("check_gt_c0_is_g0",)),
     Bug("response on the clipped sizes", "semi_synthetic",
-        "lm = response(gen, cell, eps, q, starts, lengths, rng, p)",
-        "lm = response(gen, cell, eps, np.minimum(q, stock_caps(q, starts, lengths, Nsd.shape[1])), starts, "
+        "        lm = response(gen, cell, eps, q, starts, lengths, rng, p)",
+        "        lm = response(gen, cell, eps, np.minimum(q, stock_caps(q, starts, lengths, Nsd.shape[1])), starts, "
         "lengths, rng, p)", ("check_response_uses_raw_sizes",)),
     Bug("R2 cap over the whole panel", "stock_caps",
         "stocks = np.repeat(np.arange(len(lengths) // n_days), n_days)", "stocks = np.zeros(len(lengths), int)",

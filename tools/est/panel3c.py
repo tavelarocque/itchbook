@@ -114,6 +114,27 @@ def batched_causal_conv(x: np.ndarray, starts: np.ndarray, lengths: np.ndarray, 
     return y
 
 
+def batched_multi_conv(xs: list[np.ndarray], betas: list[float], starts: np.ndarray, lengths: np.ndarray) -> np.ndarray:
+    """sum_i batched_causal_conv(xs[i], ..., betas[i]) with one inverse FFT per group: the forward transforms
+    of every (x_i, kernel_i) pair are multiplied and summed in frequency, then inverted once."""
+    y = np.zeros(len(xs[0]))
+    for m, idx in _groups(lengths):
+        h = m // 2
+        acc = None
+        for x, beta in zip(xs, betas, strict=True):
+            g = np.zeros(m)
+            g[:h] = M.trade_kernel(h, beta)
+            X = np.zeros((len(idx), m))
+            for row, i in enumerate(idx):
+                X[row, : lengths[i]] = x[starts[i] : starts[i] + lengths[i]]
+            F = np.fft.rfft(X, axis=1) * np.fft.rfft(g)[None, :]
+            acc = F if acc is None else acc + F
+        Y = np.fft.irfft(acc, m, axis=1)
+        for row, i in enumerate(idx):
+            y[starts[i] : starts[i] + lengths[i]] = Y[row, : lengths[i]]
+    return y
+
+
 def day_cumsum(x: np.ndarray, starts: np.ndarray, lengths: np.ndarray, exclusive: bool = False) -> np.ndarray:
     """Cumulative sum restarting at every stock-day; exclusive = sum of the strictly earlier runs."""
     c = np.cumsum(x)
@@ -140,10 +161,15 @@ def response(gen: str, cell: G.Cell, eps, q, starts, lengths, rng, params: dict)
         inner, centres = G.size_bins(cell)
         betas = G.tent_betas(centres, p["beta_max"], p["c"], p["l_star"])
         b = np.searchsorted(inner, np.log(q), side="right")
-        m = np.zeros(len(x))
+        xs, bs = [], []
         for beta in np.unique(betas):
             sel = np.isin(b, np.flatnonzero(betas == beta))
-            m += batched_causal_conv(np.where(sel, x, 0.0) if not sel.all() else x, starts, lengths, beta)
+            xs.append(np.where(sel, x, 0.0) if not sel.all() else x)
+            bs.append(float(beta))
+        if len(xs) == 1:
+            m = batched_causal_conv(xs[0], starts, lengths, bs[0])
+        else:
+            m = batched_multi_conv(xs, bs, starts, lengths)
     elif gen == "GF":
         informed = p["informed"]
         m = day_cumsum(np.where(informed, x, 0.0) * p.get("kappa", 1.0), starts, lengths, exclusive=True)
@@ -178,7 +204,12 @@ def day_lengths(cell_name: str, n_stocks: int, n_days: int, rng) -> np.ndarray:
 
 
 def make_panel(gen: str, cell: G.Cell, Nsd: np.ndarray, rng: np.random.Generator, sign_model: str = "fgn_ar1",
-               sm: dict | None = None, clip: str | float | None = "R2", params: dict | None = None) -> Panel:
+               sm: dict | None = None, clip: str | float | None = "R2", params: dict | None = None,
+               burn: int | None = None) -> Panel:
+    """burn=None: fresh start (every stock-day its own series, the 3c path). burn=B: stationary days (each
+    stock one series of B + sum of its day lengths, the first B runs discarded, cut into its days)."""
+    if burn is not None:
+        return _stationary_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, int(burn))
     lengths = Nsd.ravel().astype(np.int64)
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]])
     n_days = Nsd.shape[1]
@@ -207,9 +238,13 @@ def make_panel(gen: str, cell: G.Cell, Nsd: np.ndarray, rng: np.random.Generator
 
 
 def semi_synthetic(eps, q, Nsd: np.ndarray, gen: str, cell: G.Cell, rng: np.random.Generator,
-                   clip: str | None = "R2", params: dict | None = None) -> Panel:
+                   clip: str | None = "R2", params: dict | None = None, fresh: bool = False) -> Panel:
     """Real flow (eps, q in stock-major order, day lengths Nsd) with a synthetic G0, GT or GF mid; the flow
-    is returned unchanged (the same arrays' values), the clip touches only q_mom."""
+    is returned unchanged (the same arrays' values), the clip touches only q_mom.
+
+    CHOICE (3c-3): the response of a stock is one convolution over its study days concatenated in calendar
+    order as a single trade-time sequence, after a burn-in made by prepending a copy of the same days
+    (discarded), so the impact of a run reaches later days. fresh=True is the 3c path (each day alone)."""
     eps = np.asarray(eps, dtype=float)
     q = np.asarray(q, dtype=float)
     lengths = Nsd.ravel().astype(np.int64)
@@ -217,8 +252,103 @@ def semi_synthetic(eps, q, Nsd: np.ndarray, gen: str, cell: G.Cell, rng: np.rand
     p = dict(params or {})
     if gen == "GT" and not p:
         p = gt_params(cell)
-    if gen == "GF":
-        p["informed"] = rng.random(len(eps)) < p.pop("f_inf", G.GF_INFORMED)
-    lm = response(gen, cell, eps, q, starts, lengths, rng, p)
+    if fresh:
+        if gen == "GF":
+            p["informed"] = rng.random(len(eps)) < p.pop("f_inf", G.GF_INFORMED)
+        lm = response(gen, cell, eps, q, starts, lengths, rng, p)
+    else:
+        per = Nsd.sum(axis=1).astype(np.int64)  # runs per stock
+        s_st = np.concatenate([[0], np.cumsum(per)[:-1]])
+        ee = np.concatenate([np.concatenate([eps[a : a + n], eps[a : a + n]]) for a, n in zip(s_st, per, strict=True)])
+        qq = np.concatenate([np.concatenate([q[a : a + n], q[a : a + n]]) for a, n in zip(s_st, per, strict=True)])
+        series = 2 * per
+        sst = np.concatenate([[0], np.cumsum(series)[:-1]])
+        if gen == "GF":
+            p["informed"] = rng.random(len(ee)) < p.pop("f_inf", G.GF_INFORMED)
+        full = response(gen, cell, ee, qq, sst, series, rng, p)
+        lm = np.concatenate([full[b + n : b + 2 * n] for b, n in zip(sst, per, strict=True)])
     q_mom = np.minimum(q, stock_caps(q, starts, lengths, Nsd.shape[1])) if clip == "R2" else q.copy()
     return Panel(eps, q, q_mom, lm, starts, lengths, Nsd.shape[1])
+
+
+# ---- Phase 3c-3: stationary days ------------------------------------------------------------------
+#
+# A synthetic stock's days are cut from ONE continuous trade-time series (signs, sizes, impact): length
+# burn + sum of its day lengths, the first `burn` runs discarded, the rest cut into consecutive days. The
+# impact of every run reaches all later runs of the stock, across day boundaries; windows still never
+# cross a day boundary (they are formed per day by pooled.panel_moments). make_panel(..., burn=None) is
+# the old fresh-start path (each day its own series).
+
+
+def stationary_stock(gen: str, cell: G.Cell, lengths: np.ndarray, burn: int, rng: np.random.Generator,
+                     sign_model: str = "fgn_ar1", sm: dict | None = None, params: dict | None = None):
+    """(eps, q, lm) of one stock's days, cut from a single series after a burn-in of `burn` runs."""
+    lengths = np.asarray(lengths, dtype=np.int64)
+    total = int(burn + lengths.sum())
+    L = np.array([total])
+    S0 = np.array([0])
+    p = dict(params or {})
+    if gen == "GT" and not p:
+        p = gt_params(cell)
+    if gen == "GF":
+        f_inf = p.pop("f_inf", G.GF_INFORMED)
+        sm_h = sm if sm is not None else (G.gf_sign_model(cell.name, f_inf) if sign_model == "fgn_ar1" else None)
+        herd = signs(L, sign_model, sm_h, rng)
+        informed = rng.random(total) < f_inf
+        eps = np.where(informed, np.where(rng.random(total) < 0.5, 1.0, -1.0), herd)
+        p["informed"] = informed
+    else:
+        eps = signs(L, sign_model, cell.sign if sm is None else sm, rng)
+    q = np.exp(cell.mu + cell.sigma_l * rng.standard_normal(total))
+    lm = response(gen, cell, eps, q, S0, L, rng, p)
+    return eps[burn:], q[burn:], lm[burn:]
+
+
+def cut_days(x: np.ndarray, series_lengths: np.ndarray, burn: int) -> np.ndarray:
+    """Concatenated per-stock series (each burn + its days) -> concatenated days with every burn-in dropped."""
+    starts = np.concatenate([[0], np.cumsum(series_lengths)[:-1]])
+    keep = np.ones(len(x), dtype=bool)
+    for s0 in starts:
+        keep[s0 : s0 + burn] = False
+    return x[keep]
+
+
+STOCK_GROUP = 32  # stocks generated together (bounds the memory of the burn-in series)
+
+
+def _stationary_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, burn) -> Panel:
+    n_days = Nsd.shape[1]
+    lengths = Nsd.ravel().astype(np.int64)
+    starts = np.concatenate([[0], np.cumsum(lengths)[:-1]])
+    parts = [_stationary_group(gen, cell, Nsd[i : i + STOCK_GROUP], rng, sign_model, sm, params, burn)
+             for i in range(0, len(Nsd), STOCK_GROUP)]
+    eps, q, lm = (np.concatenate([x[k] for x in parts]) for k in range(3))
+    if clip == "R2":
+        q_mom = np.minimum(q, stock_caps(q, starts, lengths, n_days))
+    elif clip is None:
+        q_mom = q
+    else:
+        q_mom = np.minimum(q, float(clip))
+    return Panel(eps, q, q_mom, lm, starts, lengths, n_days)
+
+
+def _stationary_group(gen, cell, Nsd, rng, sign_model, sm, params, burn):
+    """(eps, q, lm) of a group of stocks, each one series of burn + its days, burn-in dropped."""
+    series = burn + Nsd.sum(axis=1).astype(np.int64)  # one series per stock
+    s_starts = np.concatenate([[0], np.cumsum(series)[:-1]])
+    p = dict(params or {})
+    if gen == "GT" and not p:
+        p = gt_params(cell)
+    total = int(series.sum())
+    if gen == "GF":
+        f_inf = p.pop("f_inf", G.GF_INFORMED)
+        sm_h = sm if sm is not None else (G.gf_sign_model(cell.name, f_inf) if sign_model == "fgn_ar1" else None)
+        herd = signs(series, sign_model, sm_h, rng)
+        informed = rng.random(total) < f_inf
+        eps = np.where(informed, np.where(rng.random(total) < 0.5, 1.0, -1.0), herd)
+        p["informed"] = informed
+    else:
+        eps = signs(series, sign_model, cell.sign if sm is None else sm, rng)
+    q = np.exp(cell.mu + cell.sigma_l * rng.standard_normal(total))
+    lm = response(gen, cell, eps, q, s_starts, series, rng, p)
+    return tuple(cut_days(x, series, burn) for x in (eps, q, lm))

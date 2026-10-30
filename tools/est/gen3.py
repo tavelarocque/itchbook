@@ -94,9 +94,19 @@ GM_PARAMS = {"GM": M.PAPER2,
 
 
 def fgn_rho(l, H: float) -> np.ndarray:
-    """fGn autocorrelation at lags l (any sign)."""
+    """fGn autocorrelation at lags l (any sign), 0.5 ((l + 1)^2H - 2 l^2H + |l - 1|^2H), evaluated as
+    0.5 l^2H [expm1(2H log1p(1/l)) + expm1(2H log1p(-1/l))] for l >= 1: the direct form cancels
+    catastrophically at long lags (terms near 10^13 at l = 10^6, H near 1), which made the circulant
+    embedding of multi-million-run series fail."""
     l = np.abs(np.asarray(l, dtype=float))
-    return 0.5 * ((l + 1) ** (2 * H) - 2 * l ** (2 * H) + np.abs(l - 1) ** (2 * H))
+    out = np.ones_like(l)
+    pos = l >= 1
+    x = 1.0 / l[pos]
+    with np.errstate(divide="ignore"):
+        out[pos] = 0.5 * l[pos] ** (2 * H) * (np.expm1(2 * H * np.log1p(x)) + np.expm1(2 * H * np.log1p(-x)))
+    mid = (l > 0) & (l < 1)
+    out[mid] = 0.5 * ((l[mid] + 1) ** (2 * H) - 2 * l[mid] ** (2 * H) + np.abs(l[mid] - 1) ** (2 * H))
+    return out
 
 
 def gaussian_acf(n: int, r: np.ndarray, rng: np.random.Generator) -> np.ndarray:
