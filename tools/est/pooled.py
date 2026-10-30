@@ -317,7 +317,6 @@ def intervals(v, k, z, Nsd, specs, rng: np.random.Generator, n_boot: int = N_BOO
         for key in ESTIMANDS:
             boot[key].append(o[key])
     se, n = jackknife_se(v, k, z, Nsd, specs, **kw)
-    c = INF.t_ppf((1 + level) / 2, n - 1)
     out = {}
     for key in ESTIMANDS:
         b = np.concatenate(boot[key])
@@ -326,7 +325,7 @@ def intervals(v, k, z, Nsd, specs, rng: np.random.Generator, n_boot: int = N_BOO
             blo = np.nanpercentile(b, 100 * (1 - level) / 2, axis=0)
             bhi = np.nanpercentile(b, 100 * (1 + level) / 2, axis=0)
         jok = np.isfinite(se[key])
-        jlo, jhi = est[key] - c * se[key], est[key] + c * se[key]
+        jlo, jhi = jk_interval(est[key], se[key], n, level)
         use_j = ~((bhi - blo) >= (jhi - jlo))  # the wider; ties to the bootstrap
         lo = np.where(use_j, jlo, blo)
         hi = np.where(use_j, jhi, bhi)
@@ -334,4 +333,237 @@ def intervals(v, k, z, Nsd, specs, rng: np.random.Generator, n_boot: int = N_BOO
         undefined = ~np.isfinite(est[key]) | ~jok | ~np.isfinite(blo)
         lo[undefined], hi[undefined], method[undefined] = np.nan, np.nan, 0
         out[key] = (est[key], lo, hi, method)
+    return out
+
+
+# ---- Phase 3c-2: the k-tilde normalisation (primary) ---------------------------------------
+#
+# norm="tilde" (primary since 3c-2): per stock s, with day-averaged single-run moments Sbar(1), Vbar_a(1),
+#     v_a(T) = Vbar_a(T) / (T Vbar_a(1)),   k~_a(T) = Kbar_a(T) / (T sqrt(Sbar(1) Vbar_a(1))),
+# where Xbar is the stock's day average (equal weight per day with a value) under the replicate's day
+# weights. No stock-day is excluded for the sign of K_a(1). Pooling: equal weight per stock, matched
+# sets, chained logs: between consecutive kept horizons T_p < T_t of a range, the increment is
+#     log( mean_s x_s(T_t) ) - log( mean_s x_s(T_p) ),
+# both means over the SAME stocks (eligible at T_t, with values at both). The logs are of means of curves
+# already normalised by each stock's own constants, never of raw cross-stock averages. A horizon whose
+# pooled k~ (mean over the stocks eligible there) is not positive is dropped for that estimate (counted
+# in "dropped"); the chain then joins the neighbouring kept horizons, again with a matched set. zeta =
+# 1 + OLS slope of the chained curve on log T over the kept horizons of the range (at least MIN_KEPT).
+# norm="old" is the Phase 3c path (per-stock-day normalisation, K_a(1) exclusion, mean of stock logs).
+
+T_GRID2 = 2 ** np.arange(9)  # 1 .. 256
+A_GRID2 = np.round(np.arange(0.0, 1.001, 0.25), 2)
+RANGES2 = ((4, 32), (8, 64), (16, 256))
+A_MAX2 = 1.0
+MIN_KEPT = 3
+ESTIMANDS2 = ("zeta_V", "zeta_K", "pf", "vk_diff", "Rratio")
+
+
+@dataclass
+class Raw:
+    """One cell's per-stock-day moments in panel shape (S stocks, D days)."""
+
+    V: np.ndarray  # (S, D, na, nT)
+    K: np.ndarray  # (S, D, na, nT)
+    Sm: np.ndarray  # (S, D, nT)
+    K1_t: np.ndarray  # (S, D, na)
+    Nsd: np.ndarray  # (S, D)
+
+    @property
+    def z(self) -> np.ndarray:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            R = self.K / np.sqrt(self.Sm[:, :, None, :] * self.V)
+        return np.arctanh(np.clip(R, -1 + 1e-12, 1 - 1e-12))
+
+
+def raw_panel(pm: PanelMoments, n_days: int) -> Raw:
+    return Raw(to_panel(pm.V, n_days), to_panel(pm.K, n_days), to_panel(pm.S, n_days), to_panel(pm.K1_t, n_days),
+               to_panel(pm.N, n_days))
+
+
+def jk_interval(est, se, n: int, level: float):
+    """est -+ t_{n-1}((1 + level) / 2) se: Student t with n - 1 df for n deleted units."""
+    c = INF.t_ppf((1 + level) / 2, n - 1)
+    return est - c * se, est + c * se
+
+
+def stock_curves_tilde(V, K, Sm, wd, T_grid=T_GRID2):
+    """Stock-level v and k~ (B, S, na, nT) from day-averaged raw moments (day weights wd (B, S, D))."""
+    T = np.asarray(T_grid, dtype=float)
+    Vb, Kb, Sb = _stock_mean(V, wd), _stock_mean(K, wd), _stock_mean(Sm, wd)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        v = Vb / (T * Vb[..., :1])
+        k = Kb / (T * np.sqrt(Sb[:, :, None, :1] * Vb[..., :1]))
+    return v, k
+
+
+def _pair_means(x, ws, Mt, t1: int, t2: int):
+    """Means over the stocks eligible at t2 with values at t1 and t2, of x at t1 and at t2: (B, na, nm)."""
+    fin = (np.isfinite(x[..., t1]) & np.isfinite(x[..., t2])).astype(float)
+    den = np.einsum("bs,sm,bsa->bam", ws, Mt[:, t2, :], fin)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        m1 = np.einsum("bs,sm,bsa->bam", ws, Mt[:, t2, :], np.where(fin > 0, x[..., t1], 0.0)) / den
+        m2 = np.einsum("bs,sm,bsa->bam", ws, Mt[:, t2, :], np.where(fin > 0, x[..., t2], 0.0)) / den
+    return m1, m2
+
+
+def chain_zeta(x, ws, Mt, T_grid=T_GRID2, ranges=RANGES2):
+    """zeta (B, na, nr, nm) from logs of matched means, dropping horizons whose pooled value is not
+    positive; also the pooled value per horizon (B, na, nT, nm) and the number of kept horizons."""
+    fin = np.isfinite(x)
+    num = np.einsum("bs,stm,bsat->batm", ws, Mt, np.where(fin, x, 0.0))
+    den = np.einsum("bs,stm,bsat->batm", ws, Mt, fin.astype(float))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pooled = num / den
+    keep = pooled > 0
+    lt = np.log(np.asarray(T_grid, dtype=float))
+    B, na, _, nm = pooled.shape
+    zeta = np.full((B, na, len(ranges), nm), np.nan)
+    n_kept = np.zeros((B, na, len(ranges), nm), dtype=int)
+    for r, (lo, hi) in enumerate(ranges):
+        idx = np.flatnonzero((T_grid >= lo) & (T_grid <= hi))
+        prev = np.full((B, na, nm), -1)
+        L = np.zeros((B, na, nm))
+        bad = np.zeros((B, na, nm), dtype=bool)
+        acc = {k_: np.zeros((B, na, nm)) for k_ in ("n", "x", "xx", "L", "xL")}
+        pm = {}
+        for p, t in enumerate(idx):
+            kt = keep[:, :, t, :]
+            inc = np.full((B, na, nm), np.nan)
+            for pv in idx[:p]:
+                if (pv, t) not in pm:
+                    pm[(pv, t)] = _pair_means(x, ws, Mt, pv, t)
+                m1, m2 = pm[(pv, t)]
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    pos = (m1 > 0) & (m2 > 0)
+                    d = np.where(pos, np.log(np.where(pos, m2, 1.0)) - np.log(np.where(pos, m1, 1.0)), np.nan)
+                inc = np.where(prev == pv, d, inc)
+            start = kt & (prev < 0)
+            step = kt & (prev >= 0)
+            bad |= step & ~np.isfinite(inc)
+            ok = step & np.isfinite(inc)
+            L = np.where(ok, L + np.nan_to_num(inc), np.where(start, 0.0, L))
+            add = start | ok
+            for k_, val in (("n", 1.0), ("x", lt[t]), ("xx", lt[t] ** 2)):
+                acc[k_] += np.where(add, val, 0.0)
+            acc["L"] += np.where(add, L, 0.0)
+            acc["xL"] += np.where(add, lt[t] * L, 0.0)
+            prev = np.where(add, t, prev)
+        n = acc["n"]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            slope = (n * acc["xL"] - acc["x"] * acc["L"]) / (n * acc["xx"] - acc["x"] ** 2)
+        zeta[:, :, r, :] = np.where((n >= MIN_KEPT) & ~bad, 1 + slope, np.nan)
+        n_kept[:, :, r, :] = n
+    return zeta, pooled, n_kept
+
+
+def core2(raw: Raw, Wd, Ws, specs, norm: str = "tilde", T_grid=T_GRID2, a_grid=A_GRID2, ranges=RANGES2,
+          a_max=A_MAX2) -> dict:
+    """The pooled estimands of ESTIMANDS2 (and R, a_star, diagnostics) with a leading replicate axis."""
+    if norm == "old":
+        T = np.asarray(T_grid, dtype=float)
+        excl = ~(raw.K1_t > K1_Z)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            v = raw.V / (T * raw.V[..., :1])
+            k = raw.K / (T * raw.K[..., :1])
+        k = np.where(excl[..., None], np.nan, k)
+        o = core(v, k, raw.z, raw.Nsd, Wd, Ws, specs, T_grid=T_grid, a_grid=a_grid, ranges=ranges, a_max=a_max)
+        return {key: o[key] for key in ESTIMANDS2 + ("R", "a_star")}
+    if norm != "tilde":
+        raise ValueError("norm is 'tilde' or 'old'")
+    Ns = raw.Nsd.min(axis=1)
+    wd, ws = Wd[:, None, :] * np.ones(raw.Nsd.shape)[None], Ws * 1.0
+    Mt = masks(Ns, T_grid, specs)
+    v, k = stock_curves_tilde(raw.V, raw.K, raw.Sm, wd, T_grid)
+    out = {}
+    out["zeta_V"], _, out["kept_V"] = chain_zeta(v, ws, Mt, T_grid, ranges)
+    out["zeta_K"], pooled_k, out["kept_K"] = chain_zeta(k, ws, Mt, T_grid, ranges)
+    out["dropped_K"] = ~(pooled_k > 0) & np.isfinite(pooled_k)  # (B, na, nT, nm): pooled k~ not positive
+    zs = _stock_mean(raw.z, wd)
+    fin = np.isfinite(zs)
+    num = np.einsum("bs,stm,bsat->batm", ws, Mt, np.where(fin, zs, 0.0))
+    den = np.einsum("bs,stm,bsat->batm", ws, Mt, fin.astype(float))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        R = np.tanh(num / den)
+    out["R"] = R
+    lt2 = np.log2(np.asarray(T_grid, dtype=float))
+    mids = [int(np.flatnonzero(lt2 == np.floor((np.log2(lo) + np.log2(hi)) / 2))[0]) for lo, hi in ranges]
+    ia0, ih = int(np.flatnonzero(a_grid == 0)[0]), int(np.flatnonzero(a_grid == 0.5)[0])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out["Rratio"] = np.stack([R[:, ih, t, :] / R[:, ia0, t, :] for t in mids], axis=1)
+    qa = a_grid <= min(1.5, a_max)
+    X = np.stack([np.ones(qa.sum()), a_grid[qa], a_grid[qa] ** 2], axis=1)
+    coef = np.einsum("ca,batm->bctm", np.linalg.pinv(X), R[:, qa])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out["a_star"] = np.where(coef[:, 2] < 0, -coef[:, 1] / (2 * coef[:, 2]), np.nan)
+    sel = a_grid <= a_max
+    out["pf"] = np.einsum("barm,a->brm", out["zeta_K"][:, sel], _ols_weights(a_grid[sel]))
+    h = a_grid <= A_RATIO
+    wh = _ols_weights(a_grid[h])
+    out["vk_diff"] = (np.einsum("barm,a->brm", out["zeta_V"][:, h], wh)
+                      - 2 * np.einsum("barm,a->brm", out["zeta_K"][:, h], wh))  # descriptive only
+    return out
+
+
+def estimate2(raw: Raw, specs, norm: str = "tilde", **kw) -> dict:
+    S_, D_ = raw.Nsd.shape
+    o = core2(raw, np.ones((1, D_)), np.ones((1, S_)), specs, norm, **kw)
+    return {key: val[0] for key, val in o.items()}
+
+
+def jackknife2(raw: Raw, specs, unit: str = "day", norm: str = "tilde", **kw) -> tuple[dict, int]:
+    """Delete-one-day (primary) or delete-one-stock (diagnostic) jackknife SE of ESTIMANDS2."""
+    S_, D_ = raw.Nsd.shape
+    if unit == "day":
+        Wd, Ws = jackknife_weights(S_, D_)
+    elif unit == "stock":
+        Wd, Ws = np.ones((S_, D_)), 1.0 - np.eye(S_)
+    else:
+        raise ValueError("unit is 'day' or 'stock'")
+    n = Wd.shape[0]
+    o = core2(raw, Wd, Ws, specs, norm, **kw)
+    out = {}
+    for key in ESTIMANDS2:
+        loo = o[key]
+        se = np.sqrt((n - 1) / n * np.sum((loo - loo.mean(axis=0)) ** 2, axis=0))
+        se[~np.all(np.isfinite(loo), axis=0)] = np.nan
+        out[key] = se
+    return out, n
+
+
+def intervals2(raw: Raw, specs, rng: np.random.Generator, norm: str = "tilde", n_boot: int = N_BOOT,
+               level: float = LEVEL, chunk: int = 50, stock_jk: bool = False, **kw) -> dict:
+    """{estimand: (estimate, lo, hi, method)}: the wider of the percentile bootstrap (B = n_boot) and the
+    day jackknife with Student t (G - 1 df); method 1 = bootstrap, 2 = jackknife, 0 = none. With stock_jk,
+    also "stock_jk": {estimand: (lo, hi)}, the delete-one-stock jackknife t interval (S - 1 df), a
+    diagnostic only. "dropped_K" carries the point estimate's dropped horizons."""
+    S_, D_ = raw.Nsd.shape
+    e1 = core2(raw, np.ones((1, D_)), np.ones((1, S_)), specs, norm, **kw)
+    est = {key: val[0] for key, val in e1.items()}
+    Wd, Ws = bootstrap_weights(S_, D_, n_boot, rng)
+    boot = {key: [] for key in ESTIMANDS2}
+    for i in range(0, n_boot, chunk):
+        o = core2(raw, Wd[i : i + chunk], Ws[i : i + chunk], specs, norm, **kw)
+        for key in ESTIMANDS2:
+            boot[key].append(o[key])
+    se, n = jackknife2(raw, specs, "day", norm, **kw)
+    out = {}
+    for key in ESTIMANDS2:
+        b = np.concatenate(boot[key])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            blo = np.nanpercentile(b, 100 * (1 - level) / 2, axis=0)
+            bhi = np.nanpercentile(b, 100 * (1 + level) / 2, axis=0)
+        jlo, jhi = jk_interval(est[key], se[key], n, level)
+        use_j = ~((bhi - blo) >= (jhi - jlo))
+        lo, hi = np.where(use_j, jlo, blo), np.where(use_j, jhi, bhi)
+        method = np.where(use_j, 2, 1)
+        undefined = ~np.isfinite(est[key]) | ~np.isfinite(se[key]) | ~np.isfinite(blo)
+        lo[undefined], hi[undefined], method[undefined] = np.nan, np.nan, 0
+        out[key] = (est[key], lo, hi, method)
+    if stock_jk:
+        sse, ns = jackknife2(raw, specs, "stock", norm, **kw)
+        out["stock_jk"] = {key: jk_interval(est[key], sse[key], ns, level) for key in ESTIMANDS2}
+    if "dropped_K" in est:
+        out["dropped_K"] = est["dropped_K"]
     return out
