@@ -14,5 +14,5 @@ day	file	bytes	sha256	role
 12092025	S120925-v50.txt.gz	7929915419	b6bf2f5dbd87445e37a58951c6119908ef0ea559ca373be80a0346ab73e14d66	out-of-regime replication set (analysed only after the confirmation run)
 12102025	S121025-v50.txt.gz	11557662295	-	out-of-regime replication set (analysed only after the confirmation run)
 12112025	S121125-v50.txt.gz	10471034001	-	out-of-regime replication set (analysed only after the confirmation run)
-12122025	S121225-v50.txt.gz	12551644054	-	out-of-regime replication set (analysed only after the confirmation run)
-06122026	S061226-v50.txt.gz	17894268560	-	out-of-regime replication set (analysed only after the confirmation run)
+12122025	S121225-v50.txt.gz	12551644054	46f42fb12f0e659814416713c4e22985dba1b062b0c13097ea9b5b003d612798	out-of-regime replication set (analysed only after the confirmation run)
+06122026	S061226-v50.txt.gz	17894268560	1f9d35e12120ef37ea22df9f59dc5207fe51b075b6ccf1c9cdfd09fa566dc1d5	out-of-regime replication set (analysed only after the confirmation run)
