@@ -261,24 +261,131 @@ def check_stratify_leaves_out_undefined_eta():
     rows += [{"symbol": "UNDEF", "eligible": 1, "listing": "Q", "eta": float("nan"), "sigma_l": 9.0},
              {"symbol": "NYSE1", "eligible": 1, "listing": "N", "eta": 0.4, "sigma_l": 1.5},
              {"symbol": "INELG", "eligible": 0, "listing": "Q", "eta": 0.4, "sigma_l": 1.5}]
-    meta = DS.stratify(rows)
+    meta = DS.stratify_v1(rows)
     by = {r["symbol"]: r for r in rows}
-    assert meta["unstratified"] == ["UNDEF"]
+    assert meta["unstratified"] == ["UNDEF"] and meta["seed"] == 20261029
     for s in ("UNDEF", "NYSE1", "INELG"):
-        assert "cell" not in by[s] and "split" not in by[s]
+        assert "cell_v1" not in by[s] and "split_v1" not in by[s]
     nas = [r for r in rows if r["listing"] != "N" and r["eligible"]]
     assert np.allclose(meta["sigma_terciles"], np.quantile([r["sigma_l"] for r in nas], [1 / 3, 2 / 3]))
     for r in rows[:120]:
-        assert r["eta_bin"] == DS.eta_bin(np.array([r["eta"]]))[0] and r["split"] in ("explore", "confirm")
+        assert r["eta_bin_v1"] == DS.eta_bin(np.array([r["eta"]]))[0] and r["split_v1"] in ("explore", "confirm")
+
+
+def check_s1_on_constructed_path():
+    """$10 stock: 10 runs, 6 at a one-tick spread, 2 at two ticks, 2 without a valid quote (locked,
+    crossed): s1 = 6/10 over all runs, frac_spread1 = 6/8 over valid quotes, mean spread 1.25 ticks.
+    $0.50 stock: tick is 1 unit, 3 of 4 runs at 1 unit: s1 = 0.75."""
+    rows = [{"bid_px": 99_900, "ask_px": 100_000, "mid2": 199_900}] * 6
+    rows += [{"bid_px": 99_900, "ask_px": 100_100, "mid2": 200_000}] * 2
+    rows += [{"bid_px": 100_000, "ask_px": 100_000, "mid_valid": 0, "mid2": 0},
+             {"bid_px": 100_100, "ask_px": 100_000, "mid_valid": 0, "mid2": 0}]
+    rows += [{"locate": 2, "bid_px": 5_000, "ask_px": 5_001, "mid2": 10_001}] * 3
+    rows += [{"locate": 2, "bid_px": 5_000, "ask_px": 5_100, "mid2": 10_100}]
+    st = DS.day_stats(runs_array(rows))
+    for loc, want in ((1, (0.6, 0.75, 1.25)), (2, (0.75, 0.75, 25.75))):
+        a = {k: float(st[k][loc]) for k in ("n_spread1", "n_quote", "sum_spread_ticks")}
+        a["n_runs"] = float(st["n"][loc])
+        t = DS.tick_stats(a)
+        assert np.allclose([t["s1"], t["frac_spread1"], t["spread_ticks"]], want), (loc, t)
+
+
+def check_eta_half_hand_example():
+    # half-tick grid at $10 (one mid2 tick = 100): +h, +h (continues), -h (reverses), +1 full tick (skipped
+    # by eta_half, the only one-tick move), +h (reverses the last half move -h), 0, -h (reverses)
+    m2 = [2_000_000 + x for x in (0, 100, 200, 100, 300, 400, 400, 300)]
+    st = DS.day_stats(runs_array([{"mid2": v} for v in m2]))
+    assert (st["nch"][1], st["nah"][1], st["nh"][1]) == (1, 3, 5)
+    assert (st["nc"][1], st["na"][1], st["n1"][1], st["nm"][1]) == (0, 0, 1, 6)
+    assert np.isclose(DS.eta(st["nch"][1], st["nah"][1]), 1 / 6) and np.isnan(DS.eta(st["nc"][1], st["na"][1]))
+
+
+def check_eta_half_on_simulated_paths():
+    """Half-tick moves continue the previous one with probability c, each followed by a zero or a
+    one-tick move that eta_half must skip; eta_half = c / (2 (1 - c)), tolerance 4 delta-method SE."""
+    rng = np.random.default_rng(9)
+    for c in (0.15, 0.5, 0.75):
+        n = 20000
+        step = np.empty(n)
+        step[0] = 1
+        for i in range(1, n):
+            step[i] = step[i - 1] if rng.random() < c else -step[i - 1]
+        seq = np.empty(2 * n)
+        seq[0::2] = step * 100
+        seq[1::2] = np.where(rng.random(n) < 0.5, 0, rng.choice([-200, 200], n))
+        m2 = 1_000_000 + np.concatenate([[0], np.cumsum(seq)]).astype(np.int64)
+        nc, na, nh, _ = DS.eta_counts(np.ones(len(m2), dtype=int), m2, 2, size=1)
+        want = c / (2 * (1 - c))
+        se = math.sqrt(c * (1 - c) / n) / (2 * (1 - c) ** 2)
+        assert nh[1] == n and abs(DS.eta(nc[1], na[1]) - want) < 4 * se, (c, DS.eta(nc[1], na[1]), want)
+
+
+def check_spearman():
+    x, y = [1.0, 2.0, 3.0, 4.0, 5.0, np.nan], [5.0, 6.0, 7.0, 8.0, 7.0, 1.0]
+    want = np.corrcoef([1, 2, 3, 4, 5], [1, 2, 3.5, 5, 3.5])[0, 1]  # ties share the average rank
+    assert np.isclose(DS.spearman(x, y), want)
+    z = np.random.default_rng(10).standard_normal(50)
+    assert np.isclose(DS.spearman(z, np.exp(z)), 1.0) and np.isclose(DS.spearman(z, -(z**3)), -1.0)
+
+
+def v2_rows(seed: int = 11):
+    rng = np.random.default_rng(seed)
+    rows = [{"symbol": f"Q{i:03d}", "eligible": 1, "listing": "QGS"[i % 3], "s1": float(rng.uniform()),
+             "sigma_l": float(rng.uniform(1.2, 2.0)), "eta": 0.5} for i in range(240)]
+    rows += [{"symbol": f"N{i:03d}", "eligible": 1, "listing": "N", "s1": float(rng.uniform()),
+              "sigma_l": float(rng.uniform(1.0, 1.8)), "eta": 0.5} for i in range(180)]
+    rows += [{"symbol": "EDGE4", "eligible": 1, "listing": "Q", "s1": 0.4, "sigma_l": 1.6, "eta": 0.5},
+             {"symbol": "EDGE8", "eligible": 1, "listing": "N", "s1": 0.8, "sigma_l": 1.4, "eta": 0.5},
+             {"symbol": "INELG", "eligible": 0, "listing": "Q", "s1": 0.9, "sigma_l": 1.5, "eta": 0.5}]
+    return rows
+
+
+def check_split_v2_deterministic_and_stratified():
+    rows = v2_rows()
+    meta = DS.stratify_v2(rows)
+    by = {r["symbol"]: r for r in rows}
+    assert by["EDGE4"]["tick_bin"] == 2 and by["EDGE8"]["tick_bin"] == 3 and "split_v2" not in by["INELG"]
+    assert all("split_v1" not in r for r in rows)
+    for g, listings, prefix, seed in (("NASDAQ", "QGS", "Q-T", 20261030), ("NYSE", "N", "N-T", 20261031)):
+        m = [r for r in rows if r["eligible"] and r["listing"] in listings]
+        assert meta[g]["seed"] == seed and meta[g]["n"] == len(m)
+        assert np.allclose(meta[g]["sigma_terciles"], np.quantile([r["sigma_l"] for r in m], [1 / 3, 2 / 3]))
+        for r in m:
+            assert r["tick_bin"] == DS.tick_bin(np.array([r["s1"]]))[0] and r["cell"].startswith(prefix)
+            assert r["cell"].startswith(f"{prefix}{r['tick_bin']}S") and str(r["sigma_t"]) in r["cell"]
+        cells = np.array([r["cell"] for r in m])
+        assert {r["symbol"]: r["split_v2"] for r in m} == DS.split([r["symbol"] for r in m], cells, seed)
+        for c in set(cells.tolist()):
+            n = int(np.sum(cells == c))
+            assert sum(r["split_v2"] == "explore" for r in m if r["cell"] == c) == DS.n_explore(n)
+    again = v2_rows()
+    DS.stratify_v2(again)
+    assert [r.get("split_v2") for r in again] == [r.get("split_v2") for r in rows]
+
+
+def check_nyse_split_independent_of_nasdaq():
+    base = v2_rows()
+    DS.stratify_v2(base)
+    nyse = {r["symbol"]: r["split_v2"] for r in base if r["listing"] == "N"}
+    nas = {r["symbol"]: r["split_v2"] for r in base if r["listing"] != "N" and r["eligible"]}
+    # change the NASDAQ group: drop 30 stocks and move the rest across tick bins
+    other = [r if r["listing"] == "N" else dict(r, s1=1 - r["s1"]) for r in v2_rows()
+             if not (r["listing"] != "N" and r["symbol"] < "Q030")]
+    DS.stratify_v2(other)
+    assert {r["symbol"]: r["split_v2"] for r in other if r["listing"] == "N"} == nyse
+    # and the NYSE group the same way: the NASDAQ split must not move
+    other = [dict(r, sigma_l=3 - r["sigma_l"]) if r["listing"] == "N" else r for r in v2_rows()][::-1]
+    DS.stratify_v2(other)
+    assert {r["symbol"]: r["split_v2"] for r in other if r["listing"] != "N" and r["eligible"]} == nas
 
 
 def check_split_is_deterministic_and_stratified():
     syms = [f"S{i:03d}" for i in range(150)]
     cells = np.array(["E1S1"] * 40 + ["E1S2"] * 61 + ["E2S1+2"] * 49)
-    a = DS.split(syms, cells)
-    assert a == DS.split(list(reversed(syms)), cells[::-1])  # input order does not matter
-    assert a == DS.split(syms, cells, seed=DS.SPLIT_SEED)
-    assert a != DS.split(syms, cells, seed=DS.SPLIT_SEED + 1)
+    a = DS.split(syms, cells, DS.SPLIT_SEED_V2)
+    assert a == DS.split(list(reversed(syms)), cells[::-1], DS.SPLIT_SEED_V2)  # input order does not matter
+    assert a == DS.split(syms, cells, seed=DS.SPLIT_SEED_V2)
+    assert a != DS.split(syms, cells, seed=DS.SPLIT_SEED_V2 + 1)
     for cell, n in (("E1S1", 40), ("E1S2", 61), ("E2S1+2", 49)):
         members = [s for s, c in zip(syms, cells, strict=True) if c == cell]
         n_exp = sum(a[s] == "explore" for s in members)
@@ -290,7 +397,9 @@ CHECKS = {f.__name__: f for f in [
     check_hurwitz, check_alpha_mle_is_exact, check_sampler_is_exact, check_ks_distance_brute_force,
     check_csn_recovers_pareto, check_csn_rejects_lognormal, check_eta_hand_example, check_eta_on_simulated_paths,
     check_day_stats, check_hidden_prints, check_eligibility_filters, check_strata_edges, check_merges,
-    check_stratify_leaves_out_undefined_eta,
+    check_stratify_leaves_out_undefined_eta, check_s1_on_constructed_path, check_eta_half_hand_example,
+    check_eta_half_on_simulated_paths, check_spearman, check_split_v2_deterministic_and_stratified,
+    check_nyse_split_independent_of_nasdaq,
     check_split_is_deterministic_and_stratified,
 ]}
 
@@ -319,7 +428,7 @@ BUGS = [
         "p = np.flatnonzero(one)", "p = np.flatnonzero(moves)",
         ("check_eta_hand_example", "check_eta_on_simulated_paths")),
     Bug("one tick of the mid taken as one tick of mid2", "eta_counts",
-        "np.abs(dm) == 2 * tick_of(m2[:-1])", "np.abs(dm) == tick_of(m2[:-1])",
+        "size: int = 2", "size: int = 1",
         ("check_eta_hand_example", "check_eta_on_simulated_paths")),
     Bug("eta pairs across stocks", "eta_counts",
         "pair = lp[1:] == lp[:-1]", "pair = np.ones(len(lp) - 1, dtype=bool)",
@@ -355,9 +464,34 @@ BUGS = [
     Bug("eta of a stock without alternations is infinite", "eta",
         "np.where(na > 0, nc / (2 * na), np.nan)", "nc / (2 * na)",
         ("check_eta_hand_example",)),
-    Bug("stocks with undefined eta stratified (NaN falls in the first eta bin)", "stratify",
-        'strat = [r for r in nas if np.isfinite(r["eta"])]', "strat = nas",
+    Bug("stocks with undefined eta stratified (NaN falls in the first eta bin)", "stratify_group",
+        "strat = [r for r in group if np.isfinite(r[value])]", "strat = group",
         ("check_stratify_leaves_out_undefined_eta",)),
+    Bug("s1 over valid quotes only", "tick_stats",
+        'a["n_spread1"] / a["n_runs"]', 'a["n_spread1"] / a["n_quote"]',
+        ("check_s1_on_constructed_path",)),
+    Bug("one tick fixed at 100 units at every price", "day_stats",
+        'tk = tick_of(v["mid2"])', "tk = 100",
+        ("check_s1_on_constructed_path",)),
+    Bug("eta_half counted on one-tick moves", "day_stats",
+        'eta_counts(lv, v["mid2"], n_loc, size=1)', 'eta_counts(lv, v["mid2"], n_loc, size=2)',
+        ("check_eta_half_hand_example",)),
+    Bug("Spearman with ordinal ranks (ties not averaged)", "spearman",
+        "return (np.bincount(inv, r) / np.bincount(inv))[inv]", "return r",
+        ("check_spearman",)),
+    Bug("large-tick edge strict at 0.8", "tick_bin",
+        "(s1 >= TICK_EDGES[1])", "(s1 > TICK_EDGES[1])",
+        ("check_split_v2_deterministic_and_stratified",)),
+    Bug("NYSE split drawn with the NASDAQ seed", "stratify_v2",
+        '"N-T", SPLIT_SEED_NYSE, cols', '"N-T", SPLIT_SEED_V2, cols',
+        ("check_split_v2_deterministic_and_stratified",)),
+    Bug("sigma_l terciles over all eligible stocks, not the listing group", "stratify_group",
+        'edges = np.quantile([r["sigma_l"] for r in group], [1 / 3, 2 / 3])',
+        'edges = np.quantile([r["sigma_l"] for r in rows if r["eligible"]], [1 / 3, 2 / 3])',
+        ("check_split_v2_deterministic_and_stratified", "check_nyse_split_independent_of_nasdaq")),
+    Bug("NYSE group also holds the NASDAQ-listed stocks", "stratify_v2",
+        'stratify_group(rows, NYSE, "s1"', 'stratify_group(rows, NASDAQ + NYSE, "s1"',
+        ("check_nyse_split_independent_of_nasdaq",)),
     Bug("split ignores the seed", "split",
         "rng = np.random.default_rng(seed)", "rng = np.random.default_rng()",
         ("check_split_is_deterministic_and_stratified",)),

@@ -37,15 +37,26 @@ Columns of the table (one row per symbol in any study-day symbol table):
                    and the Vuong statistic against a discrete log-normal on
                    the same tail (positive favours the power law) with its
                    two-sided p-value
-  eta, eta_nc/na   Dayri-Rosenbaum (arXiv:1207.6325) eta = N_c / (2 N_a), with
-                   the mid m = mid2 / 2 read at consecutive runs of a day
-                   (valid mids only): among the mid moves of exactly one tick,
-                   a move continues (N_c) or reverses (N_a) the previous
+  s1               PRIMARY TICK-SIZE VARIABLE: share of all runs (8 days) whose
+                   pre-run spread ask - bid is exactly one tick (valid quote;
+                   tick = 100 units for prices >= $1, 1 unit below)
+  eta, eta_nc/na   descriptor only. Dayri-Rosenbaum (arXiv:1207.6325) eta = N_c /
+                   (2 N_a), with the mid m = mid2 / 2 read at consecutive runs of
+                   a day (valid mids only): among the mid moves of exactly one
+                   tick, a move continues (N_c) or reverses (N_a) the previous
                    one-tick move of that stock-day; moves of other sizes are
-                   skipped. Pooled over days.
+                   skipped. Pooled over days; undefined without an alternation.
+                   It no longer defines the strata: its low bin (eta < 0.35)
+                   filled with illiquid wide-spread stocks whose few one-tick
+                   moves alternate, while large-tick stocks (s1 >= 0.9) have
+                   eta near 0.4 (between consecutive runs their mid moves by a
+                   full tick about 90% of the time, the spread having closed
+                   again). s1 measures the tick constraint directly.
+  eta_half(_nc/na) the same on half-tick mid moves (one tick of mid2)
   frac_onetick     share of nonzero mid moves that are one tick
-  frac_spread1     share of runs (valid quote) with ask - bid = one tick
-  spread_ticks     mean of (ask - bid) / tick; tick = 100 units for prices >= $1
+  frac_halftick    share of nonzero mid moves that are half a tick
+  frac_spread1     share of runs WITH A VALID QUOTE with ask - bid = one tick
+  spread_ticks     mean of (ask - bid) / tick over runs with a valid quote
   vol_{day}        NASDAQ displayed volume (sum of q over runs) in the TRIMMED
                    10:00-15:30 session, shares
   hid_n            regular-session P executions in 10:00-15:30 with trading state
@@ -53,18 +64,23 @@ Columns of the table (one row per symbol in any study-day symbol table):
   hid_mid          share of them printing exactly at their own pre-trade mid
                    (2 price = bid + ask, 0 < bid < ask)
   hid_unsigned     share left unsigned by runs.sign_hidden
-  eta_bin, sigma_t strata of NASDAQ-listed eligible stocks: eta < 0.35, 0.35 to
-                   0.5, >= 0.5; sigma_l terciles over NASDAQ-listed eligible stocks
-  cell, split      the stratum after merges, and 'explore' / 'confirm' (30/70
-                   within each cell, numpy default_rng(SPLIT_SEED)); blank for
-                   NYSE-listed and ineligible symbols, and for NASDAQ-listed
-                   stocks whose eta is undefined (no one-tick alternation)
+  tick_bin,        strata v2, for NASDAQ-listed and (separately) NYSE-listed
+  sigma_t          eligible stocks: tick bin 1 = small tick (s1 < 0.4), 2 =
+                   intermediate (0.4 <= s1 < 0.8), 3 = large tick (s1 >= 0.8); sigma_l
+                   terciles computed within the listing group
+  cell, split_v2   the v2 stratum after merges ('Q-T3S2' NASDAQ, 'N-T3S2' NYSE) and
+                   'explore' / 'confirm': NASDAQ with default_rng(SPLIT_SEED_V2),
+                   NYSE with its own default_rng(SPLIT_SEED_NYSE)
+  eta_bin_v1,      the superseded v1 strata (NASDAQ only, eta < 0.35, 0.35 to 0.5,
+  cell_v1,         >= 0.5 by the same sigma_l terciles, default_rng(SPLIT_SEED_V1);
+  split_v1         undefined eta left out), kept for the record
 
 Split: cells are taken in sorted label order, symbols sorted inside a cell,
-one generator draws a permutation per cell, and the first round(0.3 n) are
-'explore'. A cell whose confirmation count n - round(0.3 n) is below 10 is
-merged first into its sigma_l neighbour in the same eta bin (tercile 1 or 3
-into 2; tercile 2 into the smaller neighbour, ties to 1), repeatedly.
+one generator per listing group draws a permutation per cell, and the first
+round(0.3 n) are 'explore'. A cell whose confirmation count n - round(0.3 n)
+is below 10 is merged first into its sigma_l neighbour in the same tick bin
+(tercile 1 or 3 into 2; tercile 2 into the smaller neighbour, ties to 1),
+repeatedly.
 
 CSN details: x_min is scanned over observed values of q with at least 50
 runs at or above them, at most 40 of them, log-spaced (CSN scan every
@@ -98,11 +114,14 @@ STUDY_DAYS = ("01302019", "03272019", "07302019", "08302019", "10182019", "10302
 NASDAQ = ("Q", "G", "S")
 NYSE = ("N",)
 PRICE_MIN = 5 * 10_000  # $5 in ITCH units
-SPLIT_SEED = 20261029
+SPLIT_SEED_V1 = 20261029  # superseded strata (eta bins)
+SPLIT_SEED_V2 = 20261030  # NASDAQ-listed, s1 tick bins
+SPLIT_SEED_NYSE = 20261031  # NYSE-listed, s1 tick bins
 CSN_SEED = 20261029
 EXPLORE_FRAC = 0.3
 MIN_CONFIRM = 10
 ETA_EDGES = (0.35, 0.5)
+TICK_EDGES = (0.4, 0.8)
 N_BOOT = 200
 MIN_P_RUNS = 2000
 
@@ -354,14 +373,15 @@ def tick_of(mid2: np.ndarray) -> np.ndarray:
     return np.where(np.asarray(mid2) >= 20_000, 100, 1).astype(np.int64)
 
 
-def eta_counts(locate: np.ndarray, mid2: np.ndarray, n_loc: int):
-    """Per locate (index): one-tick continuations, alternations, one-tick moves, all nonzero moves,
-    from consecutive runs (all with valid mids, in time order within each locate)."""
+def eta_counts(locate: np.ndarray, mid2: np.ndarray, n_loc: int, size: int = 2):
+    """Per locate (index): continuations, alternations and number of the mid2 moves of exactly
+    `size` ticks (2: one-tick mid moves, 1: half-tick mid moves), and all nonzero moves, from
+    consecutive runs (all with valid mids, in time order within each locate)."""
     loc = np.asarray(locate, dtype=np.int64)
     m2 = np.asarray(mid2, dtype=np.int64)
     dm = m2[1:] - m2[:-1]
     same = loc[1:] == loc[:-1]
-    one = same & (np.abs(dm) == 2 * tick_of(m2[:-1]))  # mid2 = 2 mid: a one-tick mid move is 2 ticks of mid2
+    one = same & (np.abs(dm) == size * tick_of(m2[:-1]))  # mid2 = 2 mid: a one-tick mid move is 2 ticks of mid2
     moves = same & (dm != 0)
     p = np.flatnonzero(one)
     s, lp = np.sign(dm[p]), loc[1:][p]
@@ -394,13 +414,36 @@ def day_stats(runs: np.ndarray) -> dict[str, np.ndarray]:
     }
     v = runs[runs["mid_valid"] == 1]
     lv = v["locate"].astype(np.int64)
-    out["nc"], out["na"], out["n1"], out["nm"] = eta_counts(lv, v["mid2"], n_loc)
+    out["nc"], out["na"], out["n1"], out["nm"] = eta_counts(lv, v["mid2"], n_loc, size=2)
+    out["nch"], out["nah"], out["nh"], _ = eta_counts(lv, v["mid2"], n_loc, size=1)
     spread = v["ask_px"].astype(np.int64) - v["bid_px"].astype(np.int64)
     tk = tick_of(v["mid2"])
     out["n_quote"] = np.bincount(lv, minlength=n_loc)
     out["n_spread1"] = np.bincount(lv, (spread == tk).astype(float), minlength=n_loc)
     out["sum_spread_ticks"] = np.bincount(lv, spread / tk, minlength=n_loc)
     return out
+
+
+def tick_stats(a: dict) -> dict:
+    """s1 over all runs, frac_spread1 and spread_ticks over runs with a valid quote, from summed day_stats."""
+    return {"s1": a["n_spread1"] / a["n_runs"], "frac_spread1": a["n_spread1"] / a["n_quote"],
+            "spread_ticks": a["sum_spread_ticks"] / a["n_quote"]}
+
+
+def spearman(x, y) -> float:
+    """Spearman rank correlation with average ranks for ties, over pairs where both are finite."""
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    ok = np.isfinite(x) & np.isfinite(y)
+
+    def rank(v):
+        order = np.argsort(v, kind="stable")
+        r = np.empty(len(v))
+        r[order] = np.arange(1, len(v) + 1)
+        u, inv = np.unique(v, return_inverse=True)
+        return (np.bincount(inv, r) / np.bincount(inv))[inv]  # average rank of each tie group
+
+    rx, ry = rank(x[ok]), rank(y[ok])
+    return float(np.corrcoef(rx, ry)[0, 1])
 
 
 def iter_tape_chunks(path, records_per_chunk: int = 1 << 20):
@@ -468,6 +511,12 @@ def eta_bin(e: np.ndarray) -> np.ndarray:
     return 1 + (np.asarray(e) >= ETA_EDGES[0]).astype(int) + (np.asarray(e) >= ETA_EDGES[1]).astype(int)
 
 
+def tick_bin(s1: np.ndarray) -> np.ndarray:
+    """1 = small tick (s1 < 0.4), 2 = intermediate, 3 = large tick (s1 >= 0.8)."""
+    s1 = np.asarray(s1)
+    return 1 + (s1 >= TICK_EDGES[0]).astype(int) + (s1 >= TICK_EDGES[1]).astype(int)
+
+
 def terciles(x: np.ndarray, edges=None) -> np.ndarray:
     """1, 2, 3 by the tercile edges of x (or the given edges)."""
     x = np.asarray(x, dtype=float)
@@ -479,8 +528,8 @@ def n_explore(n: int) -> int:
     return int(math.floor(EXPLORE_FRAC * n + 0.5))
 
 
-def merge_cells(eb: np.ndarray, st: np.ndarray) -> tuple[np.ndarray, list[str]]:
-    """Cell labels 'E{eta_bin}S{terciles}' after merges. Within each eta bin, while some cell has
+def merge_cells(eb: np.ndarray, st: np.ndarray, prefix: str = "E") -> tuple[np.ndarray, list[str]]:
+    """Cell labels '{prefix}{bin}S{terciles}' after merges. Within each bin, while some cell has
     fewer than MIN_CONFIRM confirmation stocks and more than one cell is left, the smallest such cell
     (ties: lower tercile) joins its smaller adjacent cell (ties: lower)."""
     eb, st = np.asarray(eb, dtype=int), np.asarray(st, dtype=int)
@@ -496,16 +545,17 @@ def merge_cells(eb: np.ndarray, st: np.ndarray) -> tuple[np.ndarray, list[str]]:
             i = groups.index(g)
             target = min((groups[j] for j in (i - 1, i + 1) if 0 <= j < len(groups)), key=lambda h: (size[h], h))
             new = tuple(sorted(g + target))
-            merges.append(f"E{e}: S{'+'.join(map(str, g))} ({size[g]} stocks) into S{'+'.join(map(str, target))}")
+            gl, tl = "+".join(map(str, g)), "+".join(map(str, target))
+            merges.append(f"{prefix}{e}: S{gl} ({size[g]} stocks) into S{tl}")
             size[new] = size.pop(g) + size.pop(target)
             groups = sorted([h for h in groups if h not in (g, target)] + [new])
         for g in groups:
             for t in g:
-                label[(e, t)] = f"E{e}S" + "+".join(map(str, g))
+                label[(e, t)] = f"{prefix}{e}S" + "+".join(map(str, g))
     return np.array([label[(e, t)] for e, t in zip(eb.tolist(), st.tolist(), strict=True)]), merges
 
 
-def split(symbols, cells, seed: int = SPLIT_SEED) -> dict[str, str]:
+def split(symbols, cells, seed: int) -> dict[str, str]:
     """30/70 explore/confirm within each cell: cells in sorted order, symbols sorted, one generator."""
     rng = np.random.default_rng(seed)
     out = {}
@@ -528,6 +578,9 @@ def _csn_task(args):
     return sym, csn(q, rng, n_boot)
 
 
+ACC_DAY = ("nc", "na", "n1", "nm", "nch", "nah", "nh", "n_quote", "n_spread1", "sum_spread_ticks")
+
+
 def collect(data: Path, log=print):
     """One pass over the study days, one day in memory at a time: per-day symbol rows, pooled
     run sizes and summed quote, eta and hidden-print counts of every candidate symbol."""
@@ -548,10 +601,10 @@ def collect(data: Path, log=print):
                 if mc in NASDAQ + NYSE and ic == "C" and etp == "N":
                     lo, hi = np.searchsorted(loc_sorted, [loc, loc + 1])
                     qs.setdefault(sym, []).append(runs["q"][lo:hi].astype(np.uint32))
-                    a = acc.setdefault(sym, dict.fromkeys(["nc", "na", "n1", "nm", "n_quote", "n_spread1",
-                                                           "sum_spread_ticks", "hid_n", "hid_mid", "hid_uns"], 0.0))
-                    for k in ("nc", "na", "n1", "nm", "n_quote", "n_spread1", "sum_spread_ticks"):
+                    a = acc.setdefault(sym, dict.fromkeys(ACC_DAY + ("n_runs", "hid_n", "hid_mid", "hid_uns"), 0.0))
+                    for k in ACC_DAY:
                         a[k] += float(st[k][loc])
+                    a["n_runs"] += float(st["n"][loc])
                     for k in ("hid_n", "hid_mid", "hid_uns"):
                         a[k] += float(hs[k][loc]) if loc < len(hs[k]) else 0.0
             day[sym] = row
@@ -601,40 +654,67 @@ def analyse(per_day, qs, acc, workers: int, n_boot: int = N_BOOT, log=print) -> 
             a = acc[s]
             row["eta_nc"], row["eta_na"] = int(a["nc"]), int(a["na"])
             row["eta"] = float(eta(a["nc"], a["na"]))
+            row["eta_half_nc"], row["eta_half_na"] = int(a["nch"]), int(a["nah"])
+            row["eta_half"] = float(eta(a["nch"], a["nah"]))
             row["frac_onetick"] = a["n1"] / a["nm"] if a["nm"] else float("nan")
-            row["frac_spread1"] = a["n_spread1"] / a["n_quote"]
-            row["spread_ticks"] = a["sum_spread_ticks"] / a["n_quote"]
+            row["frac_halftick"] = a["nh"] / a["nm"] if a["nm"] else float("nan")
+            row.update(tick_stats(a))
             row["hid_n"] = int(a["hid_n"])
             row["hid_mid"] = a["hid_mid"] / a["hid_n"] if a["hid_n"] else float("nan")
             row["hid_unsigned"] = a["hid_uns"] / a["hid_n"] if a["hid_n"] else float("nan")
         rows.append(row)
-    meta = {"csn_seed": CSN_SEED, "n_boot": n_boot}
-    meta.update(stratify(rows))
+    meta = {"csn_seed": CSN_SEED, "n_boot": n_boot, "numpy": np.__version__}
+    meta["v1"] = stratify_v1(rows)
+    meta["v2"] = stratify_v2(rows)
+    el = [r for r in rows if r["eligible"]]
+    meta["spearman"] = {g: {k: spearman([r["s1"] for r in m], [r[k] for r in m]) for k in ("eta", "eta_half")}
+                        for g, m in (("NASDAQ", [r for r in el if r["listing"] in NASDAQ]),
+                                     ("NYSE", [r for r in el if r["listing"] in NYSE]), ("all", el))}
     return rows, meta
 
 
-def stratify(rows: list[dict]) -> dict:
-    """Strata and split of NASDAQ-listed eligible rows, in place. sigma_l terciles use all of them;
-    a stock with undefined eta (no one-tick alternation) gets no stratum and no split."""
-    nas = [r for r in rows if r["eligible"] and r["listing"] in NASDAQ]
-    edges = np.quantile([r["sigma_l"] for r in nas], [1 / 3, 2 / 3])
-    strat = [r for r in nas if np.isfinite(r["eta"])]
-    eb = eta_bin(np.array([r["eta"] for r in strat]))
-    st_ = terciles([r["sigma_l"] for r in strat], edges)
-    cells, merges = merge_cells(eb, st_)
-    assign = split([r["symbol"] for r in strat], cells)
-    for r, e, t, c in zip(strat, eb, st_, cells, strict=True):
-        r["eta_bin"], r["sigma_t"], r["cell"], r["split"] = int(e), int(t), str(c), assign[r["symbol"]]
-    return {"split_seed": SPLIT_SEED, "numpy": np.__version__, "merges": merges, "sigma_terciles": edges.tolist(),
-            "unstratified": sorted(r["symbol"] for r in nas if not np.isfinite(r["eta"]))}
+def stratify_group(rows: list[dict], listings, value: str, bin_fn, prefix: str, seed: int, cols) -> dict:
+    """Strata and split of the eligible rows of one listing group, in place: bins of `value`
+    (bin_fn) by sigma_l terciles computed on the whole group, merges, then the split with its own
+    generator. A stock whose `value` is undefined gets no stratum. cols names the bin, tercile
+    (or None), cell and split fields."""
+    group = [r for r in rows if r["eligible"] and r["listing"] in listings]
+    edges = np.quantile([r["sigma_l"] for r in group], [1 / 3, 2 / 3])
+    strat = [r for r in group if np.isfinite(r[value])]
+    b = bin_fn(np.array([r[value] for r in strat]))
+    t = terciles([r["sigma_l"] for r in strat], edges)
+    cells, merges = merge_cells(b, t, prefix)
+    assign = split([r["symbol"] for r in strat], cells, seed)
+    bin_col, terc_col, cell_col, split_col = cols
+    for r, bb, tt, c in zip(strat, b, t, cells, strict=True):
+        r[bin_col], r[cell_col], r[split_col] = int(bb), str(c), assign[r["symbol"]]
+        if terc_col:
+            r[terc_col] = int(tt)
+    return {"seed": seed, "merges": merges, "sigma_terciles": edges.tolist(), "n": len(strat),
+            "unstratified": sorted(r["symbol"] for r in group if not np.isfinite(r[value]))}
+
+
+def stratify_v1(rows: list[dict]) -> dict:
+    """The superseded v1 strata: NASDAQ-listed, eta bins, seed SPLIT_SEED_V1 (reproduces commit 73fd12f)."""
+    return stratify_group(rows, NASDAQ, "eta", eta_bin, "E", SPLIT_SEED_V1, ("eta_bin_v1", None, "cell_v1", "split_v1"))
+
+
+def stratify_v2(rows: list[dict]) -> dict:
+    """v2 strata on s1 tick bins: NASDAQ-listed (SPLIT_SEED_V2) and NYSE-listed (SPLIT_SEED_NYSE), each
+    with its own sigma_l terciles and its own generator, so neither split depends on the other group."""
+    cols = ("tick_bin", "sigma_t", "cell", "split_v2")
+    return {"NASDAQ": stratify_group(rows, NASDAQ, "s1", tick_bin, "Q-T", SPLIT_SEED_V2, cols),
+            "NYSE": stratify_group(rows, NYSE, "s1", tick_bin, "N-T", SPLIT_SEED_NYSE, cols)}
 
 
 COLUMNS = (["symbol", "listing", "eligible", "reason", "n_min", "n_median", "vwap_min", "sigma_l"]
            + [f"q_d{i}" for i in range(1, 10)]
            + ["top10_min", "top20_min", "top10_share", "top20_share", "frac_roundlot"] + list(CSN_FIELDS)
-           + ["eta", "eta_nc", "eta_na", "frac_onetick", "frac_spread1", "spread_ticks"]
+           + ["s1", "eta", "eta_nc", "eta_na", "eta_half", "eta_half_nc", "eta_half_na", "frac_onetick",
+              "frac_halftick", "frac_spread1", "spread_ticks"]
            + [f"vol_{d}" for d in STUDY_DAYS]
-           + ["hid_n", "hid_mid", "hid_unsigned", "eta_bin", "sigma_t", "cell", "split"])
+           + ["hid_n", "hid_mid", "hid_unsigned", "tick_bin", "sigma_t", "cell", "split_v2",
+              "eta_bin_v1", "cell_v1", "split_v1"])
 
 
 def _fmt(v) -> str:
@@ -649,15 +729,25 @@ def write_tsv(rows, meta, path: Path) -> None:
     with open(path, "w") as f:
         f.write("# itchbook universe: descriptive statistics of the 8 study days (tools/est/describe.py)\n")
         f.write(f"# study_days: {' '.join(STUDY_DAYS)}\n")
-        f.write(f"# split: numpy.random.default_rng({meta['split_seed']}), numpy {meta['numpy']}, "
-                f"explore fraction {EXPLORE_FRAC} within cells, NASDAQ-listed eligible stocks only\n")
-        lo, hi = meta["sigma_terciles"]
-        f.write(f"# sigma_l terciles (NASDAQ eligible): {lo:.6g} {hi:.6g}; "
-                f"eta bins: < {ETA_EDGES[0]}, {ETA_EDGES[0]} to {ETA_EDGES[1]}, >= {ETA_EDGES[1]}\n")
-        f.write(f"# merges: {'; '.join(meta['merges']) or 'none'}\n")
-        uns = meta["unstratified"]
-        f.write(f"# unstratified NASDAQ eligible (eta undefined: no one-tick alternation): {len(uns)}: "
-                + " ".join(uns) + "\n")
+        v1, v2 = meta["v1"], meta["v2"]
+        f.write(f"# numpy {meta['numpy']}; explore fraction {EXPLORE_FRAC} within cells; merge below {MIN_CONFIRM} "
+                "confirmation stocks into the sigma_l neighbour in the same bin\n")
+        f.write("# split_v2 (CURRENT): strata changed in step 3b because eta mismeasures tick size (its low bin "
+                "held illiquid wide-spread stocks, while large-tick stocks have eta near 0.4); tick bins now "
+                f"use s1: < {TICK_EDGES[0]}, {TICK_EDGES[0]} to {TICK_EDGES[1]}, >= {TICK_EDGES[1]}; new seeds\n")
+        for g in ("NASDAQ", "NYSE"):
+            m = v2[g]
+            lo, hi = m["sigma_terciles"]
+            f.write(f"#   {g}-listed: default_rng({m['seed']}), {m['n']} stocks, sigma_l terciles {lo:.6g} {hi:.6g}, "
+                    f"merges: {'; '.join(m['merges']) or 'none'}\n")
+        lo, hi = v1["sigma_terciles"]
+        f.write(f"# split_v1 (SUPERSEDED, commit 73fd12f): NASDAQ-listed only, default_rng({v1['seed']}), eta bins < "
+                f"{ETA_EDGES[0]}, {ETA_EDGES[0]} to {ETA_EDGES[1]}, >= {ETA_EDGES[1]}, sigma_l terciles {lo:.6g} "
+                f"{hi:.6g}, merges: {'; '.join(v1['merges']) or 'none'}; {len(v1['unstratified'])} with undefined "
+                f"eta left out: {' '.join(v1['unstratified'])}\n")
+        sp = meta["spearman"]
+        f.write("# spearman(s1, eta) / (s1, eta_half): " + "; ".join(
+            f"{g} {sp[g]['eta']:.3f} / {sp[g]['eta_half']:.3f}" for g in ("NASDAQ", "NYSE", "all")) + "\n")
         f.write(f"# csn: {meta['n_boot']} bootstraps, rng [{meta['csn_seed']}, crc32(symbol)]; "
                 f"p-value blank below {MIN_P_RUNS} runs\n")
         f.write("# vol_*: NASDAQ displayed volume in the trimmed 10:00-15:30 session (shares)\n")
