@@ -27,4 +27,4 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["synth", "moments", "longmem", "propagator", "tape", "runs", "itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze", "lob", "deep", "run"]
+known-first-party = ["synth", "moments", "longmem", "propagator", "inference", "surrogates", "collapse", "mbmodel", "thinning", "tape", "runs", "itchref", "crosscheck", "bookref", "crosscheck_book", "queue_smoke", "analyze", "lob", "deep", "run"]
