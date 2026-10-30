@@ -62,8 +62,11 @@ def _day(args):
     gen, cell, N, seed, j, params, keep_series = args
     t0 = time.time()
     cell = cell if isinstance(cell, G.Cell) else G.load_cell(cell)
+    params = dict(params)
+    cap = params.pop("q_cap", None)  # clip the sizes the moments see; the generator's impact uses the raw q
     d = G.simulate_day(gen, cell, N, np.random.default_rng([seed, j]), **params)
-    m = MO.day_moments(d.eps, d.q, d.lm, d.ok, T_GRID, A_GRID)
+    q = d.q if cap is None else np.minimum(d.q, cap)
+    m = MO.day_moments(d.eps, q, d.lm, d.ok, T_GRID, A_GRID)
     series = (d.eps.astype(np.int8), d.q.astype(np.float32)) if keep_series else None
     return m.V, m.K, m.S, series, time.time() - t0
 

@@ -167,6 +167,36 @@ def collect(log=print) -> None:
 # ---- pass 2: fit ------------------------------------------------------------------
 
 
+def sign_acf_fit(lags: np.ndarray, snum: np.ndarray, scnt: np.ndarray, N: np.ndarray, rng: np.random.Generator,
+                 n_boot: int = N_BOOT) -> dict:
+    """The calibration's sign-ACF rule on per-stock-day lag products (rows = stock-days): each stock-day
+    contributes l <= min(SIGN_LAG_MAX, N / 10), L_max = last lag with >= MIN_STOCKDAYS contributors,
+    stock-day cluster bootstrap, power-law OLS on [FIT_LO, l_hi] with l_hi cut where C <= 2 SE."""
+    use = lags[None, :] <= np.minimum(SIGN_LAG_MAX, N[:, None] // 10)  # stock-day sd contributes l <= N_sd / 10
+    n_sd = use.sum(0)
+    L_max = int(lags[n_sd >= MIN_STOCKDAYS].max())
+    sel = lags <= L_max
+    lags, use, n_sd = lags[sel], use[:, sel], n_sd[sel]
+    num, cnt = np.where(use, snum[:, sel], 0.0), np.where(use, scnt[:, sel], 0.0)
+    C = num.sum(0) / cnt.sum(0)
+    reps = cluster_boot(num, cnt, n_boot, rng)
+    lo, hi = np.nanpercentile(reps, [2.5, 97.5], axis=0)
+    se = np.nanstd(reps, axis=0)
+    weak = np.flatnonzero((lags >= FIT_LO) & ~(C > 2 * se))
+    l_hi = int(lags[weak[0] - 1]) if len(weak) else L_max
+    fit = (lags >= FIT_LO) & (lags <= l_hi)
+    out = {"lags": lags, "n_sd": n_sd, "C": C, "lo": lo, "hi": hi, "se": se, "L_max": L_max, "l_hi": l_hi,
+           "fit_n_lags": int(fit.sum())}
+    if fit.sum() >= 3 and np.all(C[fit] > 0):
+        cc, gg = power_fit(lags[fit], C[fit])
+        g_reps = [power_fit(lags[fit], r[fit])[1] for r in reps if np.all(r[fit] > 0)]
+        out.update(c_fit=cc, gamma_fit=gg, gamma_fit_nboot=len(g_reps))
+        out["gamma_fit_lo"], out["gamma_fit_hi"] = (float(v) for v in np.percentile(g_reps, [2.5, 97.5]))
+    else:
+        out.update(c_fit=np.nan, gamma_fit=np.nan, gamma_fit_lo=np.nan, gamma_fit_hi=np.nan, gamma_fit_nboot=0)
+    return out
+
+
 def fit_cell(c: str, rng: np.random.Generator) -> tuple[dict, dict]:
     z = np.load(PHASE3 / f"calib_raw_{c}.npz")
     q = np.load(PHASE3 / f"sizes_{c}.npy").astype(float)
@@ -188,32 +218,13 @@ def fit_cell(c: str, rng: np.random.Generator) -> tuple[dict, dict]:
     w, H = G.fit_size_copula(qacf[1:], np.arange(1, LOGQ_LAG_MAX + 1))
     row["copula_w"], row["copula_H"] = w, H
     # sign ACF
-    lags = z["sign_lags"]
-    use = lags[None, :] <= np.minimum(SIGN_LAG_MAX, N[:, None] // 10)  # stock-day sd contributes l <= N_sd / 10
-    n_sd = use.sum(0)
-    L_max = int(lags[n_sd >= MIN_STOCKDAYS].max())
-    sel = lags <= L_max
-    lags, use, n_sd = lags[sel], use[:, sel], n_sd[sel]
-    num, cnt = np.where(use, z["snum"][:, sel], 0.0), np.where(use, z["scnt"][:, sel], 0.0)
-    C = num.sum(0) / cnt.sum(0)
-    reps = cluster_boot(num, cnt, N_BOOT, rng)
-    lo, hi = np.nanpercentile(reps, [2.5, 97.5], axis=0)
-    se = np.nanstd(reps, axis=0)
+    sf = sign_acf_fit(z["sign_lags"], z["snum"], z["scnt"], N, rng, N_BOOT)
+    lags, n_sd, C, lo, hi, se, L_max = (sf[k] for k in ("lags", "n_sd", "C", "lo", "hi", "se", "L_max"))
     row["L_max"] = L_max
     for l in (1, 10, 100):
         row[f"C_{l}"] = float(C[lags == l][0]) if l in lags else np.nan
-    weak = np.flatnonzero((lags >= FIT_LO) & ~(C > 2 * se))
-    l_hi = int(lags[weak[0] - 1]) if len(weak) else L_max
-    fit = (lags >= FIT_LO) & (lags <= l_hi)
-    row["fit_lo"], row["fit_hi"], row["fit_n_lags"] = FIT_LO, l_hi, int(fit.sum())
-    if fit.sum() >= 3 and np.all(C[fit] > 0):
-        cc, gg = power_fit(lags[fit], C[fit])
-        g_reps = [power_fit(lags[fit], r[fit])[1] for r in reps if np.all(r[fit] > 0)]
-        row["c_fit"], row["gamma_fit"] = cc, gg
-        row["gamma_fit_lo"], row["gamma_fit_hi"] = (float(v) for v in np.percentile(g_reps, [2.5, 97.5]))
-        row["gamma_fit_nboot"] = len(g_reps)
-    else:
-        row.update(c_fit=np.nan, gamma_fit=np.nan, gamma_fit_lo=np.nan, gamma_fit_hi=np.nan, gamma_fit_nboot=0)
+    row["fit_lo"], row["fit_hi"], row["fit_n_lags"] = FIT_LO, sf["l_hi"], sf["fit_n_lags"]
+    row.update({k: sf[k] for k in ("c_fit", "gamma_fit", "gamma_fit_lo", "gamma_fit_hi", "gamma_fit_nboot")})
     if len(z["lw_g"]) >= 2:
         g, s, Q, df = LM.pool_days(z["lw_g"], z["lw_se"])
         row.update(gamma_lw=g, gamma_lw_se=s, lw_Q=Q, lw_df=df, lw_n=len(z["lw_g"]))
