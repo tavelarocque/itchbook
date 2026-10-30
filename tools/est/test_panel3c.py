@@ -137,8 +137,8 @@ class Bug(NamedTuple):
 
 
 BUGS = [
-    Bug("batched kernel off by one lag", "batched_causal_conv",
-        "g[:h] = M.trade_kernel(h, beta)", "g[1:h] = M.trade_kernel(h, beta)[:-1]",
+    Bug("batched kernel off by one lag", "kernel_spectrum",
+        "g[: m // 2] = M.trade_kernel(m // 2, beta)", "g[1 : m // 2] = M.trade_kernel(m // 2, beta)[:-1]",
         ("check_batched_conv_equals_gen3",)),
     Bug("semi-synthetic returns the clipped sizes as the flow", "semi_synthetic",
         "return Panel(eps, q, q_mom, lm,", "return Panel(eps, q_mom, q_mom, lm,", ("check_flow_unchanged",)),

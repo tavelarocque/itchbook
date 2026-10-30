@@ -36,7 +36,8 @@ def check_days_from_one_series():
     correlate across 300 stocks (above 0.5); fresh-start days do not (below 0.25 in absolute value)."""
     Nsd = np.full((300, 2), 400)
     for burn, lo, hi in ((2000, 0.5, 1.0), (None, -0.25, 0.25)):
-        p = PC.make_panel("G0", CELL, Nsd, np.random.default_rng(2), params={"beta": 0.4}, burn=burn, clip=None)
+        p = PC.make_panel("G0", CELL, Nsd, np.random.default_rng(2), params={"beta": 0.4}, burn=burn, clip=None,
+                          continuous=True)
         m = p.eps.reshape(300, 2, 400).mean(axis=2)
         r = np.corrcoef(m[:, 0], m[:, 1])[0, 1]
         assert lo < r < hi, (burn, r)

@@ -54,8 +54,21 @@ class Panel:
         return self.lengths.reshape(-1, self.n_days)
 
 
+_SMOOTH = np.array(sorted({a * 2**k for a in (1, 3, 5, 9, 15) for k in range(1, 40) if a * 2**k < 2**40}))
+
+
 def embed_size(N: np.ndarray) -> np.ndarray:
-    return (1 << np.ceil(np.log2(np.maximum(2 * np.asarray(N), 2))).astype(int)).astype(np.int64)
+    """Circulant / FFT size for series of length N: the smallest even 5-smooth number of the form
+    a 2^k (a in 1, 3, 5, 9, 15) that is at least 2 N (3c-4; was the next power of 2, up to 33 % larger)."""
+    need = np.maximum(2 * np.asarray(N, dtype=np.int64), 2)
+    return _SMOOTH[np.searchsorted(_SMOOTH, need)].astype(np.int64)
+
+
+def kernel_spectrum(m: int, beta: float) -> np.ndarray:
+    """rfft of the trade kernel (1 + l)^-beta on lags 0 .. m/2 - 1 (0 at lag 0), zero-padded to m."""
+    g = np.zeros(m)
+    g[: m // 2] = M.trade_kernel(m // 2, beta)
+    return np.fft.rfft(g)
 
 
 def _groups(lengths: np.ndarray):
@@ -102,13 +115,10 @@ def batched_causal_conv(x: np.ndarray, starts: np.ndarray, lengths: np.ndarray, 
     """Per stock-day y_n = sum_{k<n} (1 + n - k)^-beta x_k (gen3.causal_conv with mbmodel.trade_kernel)."""
     y = np.zeros(len(x))
     for m, idx in _groups(lengths):
-        h = m // 2
-        g = np.zeros(m)
-        g[:h] = M.trade_kernel(h, beta)
         X = np.zeros((len(idx), m))
         for row, i in enumerate(idx):
             X[row, : lengths[i]] = x[starts[i] : starts[i] + lengths[i]]
-        Y = np.fft.irfft(np.fft.rfft(X, axis=1) * np.fft.rfft(g)[None, :], m, axis=1)
+        Y = np.fft.irfft(np.fft.rfft(X, axis=1) * kernel_spectrum(m, beta)[None, :], m, axis=1)
         for row, i in enumerate(idx):
             y[starts[i] : starts[i] + lengths[i]] = Y[row, : lengths[i]]
     return y
@@ -119,15 +129,12 @@ def batched_multi_conv(xs: list[np.ndarray], betas: list[float], starts: np.ndar
     of every (x_i, kernel_i) pair are multiplied and summed in frequency, then inverted once."""
     y = np.zeros(len(xs[0]))
     for m, idx in _groups(lengths):
-        h = m // 2
         acc = None
         for x, beta in zip(xs, betas, strict=True):
-            g = np.zeros(m)
-            g[:h] = M.trade_kernel(h, beta)
             X = np.zeros((len(idx), m))
             for row, i in enumerate(idx):
                 X[row, : lengths[i]] = x[starts[i] : starts[i] + lengths[i]]
-            F = np.fft.rfft(X, axis=1) * np.fft.rfft(g)[None, :]
+            F = np.fft.rfft(X, axis=1) * kernel_spectrum(m, beta)[None, :]
             acc = F if acc is None else acc + F
         Y = np.fft.irfft(acc, m, axis=1)
         for row, i in enumerate(idx):
@@ -205,11 +212,16 @@ def day_lengths(cell_name: str, n_stocks: int, n_days: int, rng) -> np.ndarray:
 
 def make_panel(gen: str, cell: G.Cell, Nsd: np.ndarray, rng: np.random.Generator, sign_model: str = "fgn_ar1",
                sm: dict | None = None, clip: str | float | None = "R2", params: dict | None = None,
-               burn: int | None = None) -> Panel:
-    """burn=None: fresh start (every stock-day its own series, the 3c path). burn=B: stationary days (each
-    stock one series of B + sum of its day lengths, the first B runs discarded, cut into its days)."""
+               burn: int | None = None, continuous: bool = False) -> Panel:
+    """burn=None: fresh start (every stock-day its own series, no history; the 3c path).
+    burn=B (3c-4 primary): independent stationary days, every stock-day its own series of B + N runs with
+    the first B discarded, independent of the stock's other days (stock-level parameters are the cell's).
+    burn=B, continuous=True (the 3c-3 path, kept as a stress test): each stock one series of B + the sum of
+    its day lengths, cut into its days."""
     if burn is not None:
-        return _stationary_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, int(burn))
+        if continuous:
+            return _stationary_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, int(burn))
+        return _independent_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, int(burn))
     lengths = Nsd.ravel().astype(np.int64)
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]])
     n_days = Nsd.shape[1]
@@ -352,3 +364,28 @@ def _stationary_group(gen, cell, Nsd, rng, sign_model, sm, params, burn):
     q = np.exp(cell.mu + cell.sigma_l * rng.standard_normal(total))
     lm = response(gen, cell, eps, q, s_starts, series, rng, p)
     return tuple(cut_days(x, series, burn) for x in (eps, q, lm))
+
+
+DAY_GROUP = 64  # stock-days generated together on the independent-days path
+
+
+def independent_series(Nsd: np.ndarray, burn: int) -> np.ndarray:
+    """(S * D, 1) series lengths of the independent-days path: every stock-day gets its own burn-in."""
+    return (burn + Nsd.reshape(-1, 1)).astype(np.int64)
+
+
+def _independent_panel(gen, cell, Nsd, rng, sign_model, sm, clip, params, burn) -> Panel:
+    n_days = Nsd.shape[1]
+    lengths = Nsd.ravel().astype(np.int64)
+    starts = np.concatenate([[0], np.cumsum(lengths)[:-1]])
+    ser = independent_series(Nsd, burn) - burn  # one row per stock-day: its own series
+    parts = [_stationary_group(gen, cell, ser[i : i + DAY_GROUP], rng, sign_model, sm, params, burn)
+             for i in range(0, len(ser), DAY_GROUP)]
+    eps, q, lm = (np.concatenate([x[k] for x in parts]) for k in range(3))
+    if clip == "R2":
+        q_mom = np.minimum(q, stock_caps(q, starts, lengths, n_days))
+    elif clip is None:
+        q_mom = q
+    else:
+        q_mom = np.minimum(q, float(clip))
+    return Panel(eps, q, q_mom, lm, starts, lengths, n_days)

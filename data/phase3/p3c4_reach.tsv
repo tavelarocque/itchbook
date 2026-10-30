@@ -1,0 +1,14 @@
+# Phase 3c-4 reach: confirmation stocks with N_min >= T2 / rho
+group	rho_used	rho_found	confirm	[4,32]	[8,64]
+Q-T1S1	0.05		161	34	22
+Q-T1S2	0.05		216	52	23
+Q-T1S3	0.05		252	26	5
+Q-T2S1	0.05		80	32	17
+Q-T2S2	0.05		50	12	3
+Q-T2S3	0.05		17	1	0
+Q-T3S1	0.05		50	31	21
+Q-T3S2	0.05		27	12	6
+Q-T3S3	0.05		23	5	1
+Q-T1	per cell		629	112	50
+Q-T2	per cell		147	45	20
+Q-T3	per cell		100	48	28

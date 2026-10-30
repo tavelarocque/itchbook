@@ -585,3 +585,59 @@ def intervals2(raw: Raw, specs, rng: np.random.Generator, norm: str = "tilde", n
     if "dropped_K" in est:
         out["dropped_K"] = est["dropped_K"]
     return out
+
+
+# ---- Phase 3c-4: the widest of three intervals ----------------------------------------------------
+
+METHODS3 = ("day_stock_bootstrap", "day_jackknife_t", "whole_stock_bootstrap")
+
+
+def whole_stock_weights(n_s: int, n_d: int, B: int, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    """Whole-stock bootstrap: stocks drawn with replacement, each with ALL its days (day weights 1)."""
+    Ws = np.zeros((B, n_s))
+    for b in range(B):
+        Ws[b] = np.bincount(rng.integers(0, n_s, n_s), minlength=n_s)
+    return np.ones((B, n_d)), Ws
+
+
+def _percentile(reps: np.ndarray, level: float):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        lo = np.nanpercentile(reps, 100 * (1 - level) / 2, axis=0)
+        return lo, np.nanpercentile(reps, 100 * (1 + level) / 2, axis=0)
+
+
+def intervals3(raw: Raw, specs, rng: np.random.Generator, n_boot: int = N_BOOT, level: float = LEVEL,
+               chunk: int = 50, keys=ESTIMANDS2, **kw) -> dict:
+    """{estimand: (estimate, lo, hi, method)}: the WIDEST of (i) the day-and-stock cluster bootstrap
+    (inference.cluster_bootstrap's draws), (ii) the delete-one-day jackknife with Student t (G - 1 df),
+    (iii) the whole-stock bootstrap (stocks with all their days), B = n_boot each, percentile intervals for
+    the bootstraps. method = 1, 2, 3 for (i), (ii), (iii), 0 when the estimate is undefined. A method that is
+    undefined for an element is skipped for it; no method defined: no interval."""
+    S_, D_ = raw.Nsd.shape
+    e1 = core2(raw, np.ones((1, D_)), np.ones((1, S_)), specs, "tilde", **kw)
+    est = {key: e1[key][0] for key in keys}
+    reps = {}
+    draws = (("ds", bootstrap_weights(S_, D_, n_boot, rng)), ("ws", whole_stock_weights(S_, D_, n_boot, rng)))
+    for name, (Wd, Ws) in draws:
+        acc = {key: [] for key in keys}
+        for i in range(0, n_boot, chunk):
+            o = core2(raw, Wd[i : i + chunk], Ws[i : i + chunk], specs, "tilde", **kw)
+            for key in keys:
+                acc[key].append(o[key])
+        reps[name] = {key: np.concatenate(v) for key, v in acc.items()}
+    se, n = jackknife2(raw, specs, "day", "tilde", **kw)
+    out = {}
+    for key in keys:
+        cands = [_percentile(reps["ds"][key], level), jk_interval(est[key], se[key], n, level),
+                 _percentile(reps["ws"][key], level)]
+        widths = np.stack([np.where(np.isfinite(hi - lo), hi - lo, -np.inf) for lo, hi in cands])
+        pick = np.argmax(widths, axis=0)  # ties to the first
+        lo = np.choose(pick, [c[0] for c in cands])
+        hi = np.choose(pick, [c[1] for c in cands])
+        method = pick + 1
+        undefined = ~np.isfinite(est[key]) | ~np.isfinite(widths.max(axis=0))
+        lo, hi = np.where(undefined, np.nan, lo), np.where(undefined, np.nan, hi)
+        out[key] = (est[key], lo, hi, np.where(undefined, 0, method))
+    out["dropped_K"] = e1["dropped_K"][0]
+    return out
