@@ -1,0 +1,200 @@
+# Phase 3c rho* per cell, generator and estimator
+tag	cell	gen	estimator	rho_star
+main	Q-T1S1	G0	zeta_V	0.1
+main	Q-T1S1	G0	zeta_K	0.0125
+main	Q-T1S1	G0	pf	0.2
+main	Q-T1S1	G0	ratio	0.0125
+main	Q-T1S1	G0	vk_diff	0.2
+main	Q-T1S1	G0	Rratio	0.0125
+main	Q-T1S1	GT	zeta_V	0.0125
+main	Q-T1S1	GT	zeta_K	0.0125
+main	Q-T1S1	GT	pf	0.2
+main	Q-T1S1	GT	ratio	0.0125
+main	Q-T1S1	GT	vk_diff	0.2
+main	Q-T1S1	GT	Rratio	0.2
+main	Q-T1S1	GF	zeta_V	0.0125
+main	Q-T1S1	GF	zeta_K	
+main	Q-T1S1	GF	pf	
+main	Q-T1S1	GF	ratio	
+main	Q-T1S1	GF	vk_diff	
+main	Q-T1S1	GF	Rratio	
+main	Q-T1S2	G0	zeta_V	
+main	Q-T1S2	G0	zeta_K	
+main	Q-T1S2	G0	pf	0.025
+main	Q-T1S2	G0	ratio	
+main	Q-T1S2	G0	vk_diff	
+main	Q-T1S2	G0	Rratio	
+main	Q-T1S2	GT	zeta_V	0.0125
+main	Q-T1S2	GT	zeta_K	0.0125
+main	Q-T1S2	GT	pf	0.0125
+main	Q-T1S2	GT	ratio	0.0125
+main	Q-T1S2	GT	vk_diff	0.0125
+main	Q-T1S2	GT	Rratio	0.0125
+main	Q-T1S2	GF	zeta_V	
+main	Q-T1S2	GF	zeta_K	
+main	Q-T1S2	GF	pf	
+main	Q-T1S2	GF	ratio	
+main	Q-T1S2	GF	vk_diff	
+main	Q-T1S2	GF	Rratio	
+main	Q-T1S3	G0	zeta_V	
+main	Q-T1S3	G0	zeta_K	
+main	Q-T1S3	G0	pf	
+main	Q-T1S3	G0	ratio	
+main	Q-T1S3	G0	vk_diff	
+main	Q-T1S3	G0	Rratio	
+main	Q-T1S3	GT	zeta_V	
+main	Q-T1S3	GT	zeta_K	
+main	Q-T1S3	GT	pf	
+main	Q-T1S3	GT	ratio	
+main	Q-T1S3	GT	vk_diff	
+main	Q-T1S3	GT	Rratio	
+main	Q-T1S3	GF	zeta_V	
+main	Q-T1S3	GF	zeta_K	
+main	Q-T1S3	GF	pf	
+main	Q-T1S3	GF	ratio	
+main	Q-T1S3	GF	vk_diff	
+main	Q-T1S3	GF	Rratio	
+main	Q-T2S1	G0	zeta_V	
+main	Q-T2S1	G0	zeta_K	
+main	Q-T2S1	G0	pf	0.05
+main	Q-T2S1	G0	ratio	
+main	Q-T2S1	G0	vk_diff	
+main	Q-T2S1	G0	Rratio	0.0125
+main	Q-T2S1	GT	zeta_V	
+main	Q-T2S1	GT	zeta_K	0.05
+main	Q-T2S1	GT	pf	0.05
+main	Q-T2S1	GT	ratio	
+main	Q-T2S1	GT	vk_diff	
+main	Q-T2S1	GT	Rratio	0.0125
+main	Q-T2S1	GF	zeta_V	
+main	Q-T2S1	GF	zeta_K	
+main	Q-T2S1	GF	pf	
+main	Q-T2S1	GF	ratio	
+main	Q-T2S1	GF	vk_diff	
+main	Q-T2S1	GF	Rratio	0.0125
+main	Q-T2S2	G0	zeta_V	
+main	Q-T2S2	G0	zeta_K	
+main	Q-T2S2	G0	pf	0.05
+main	Q-T2S2	G0	ratio	
+main	Q-T2S2	G0	vk_diff	
+main	Q-T2S2	G0	Rratio	0.025
+main	Q-T2S2	GT	zeta_V	
+main	Q-T2S2	GT	zeta_K	
+main	Q-T2S2	GT	pf	
+main	Q-T2S2	GT	ratio	
+main	Q-T2S2	GT	vk_diff	
+main	Q-T2S2	GT	Rratio	0.0125
+main	Q-T2S2	GF	zeta_V	
+main	Q-T2S2	GF	zeta_K	
+main	Q-T2S2	GF	pf	0.05
+main	Q-T2S2	GF	ratio	
+main	Q-T2S2	GF	vk_diff	
+main	Q-T2S2	GF	Rratio	
+main	Q-T2S3	G0	zeta_V	
+main	Q-T2S3	G0	zeta_K	
+main	Q-T2S3	G0	pf	
+main	Q-T2S3	G0	ratio	
+main	Q-T2S3	G0	vk_diff	
+main	Q-T2S3	G0	Rratio	0.1
+main	Q-T2S3	GT	zeta_V	
+main	Q-T2S3	GT	zeta_K	
+main	Q-T2S3	GT	pf	
+main	Q-T2S3	GT	ratio	
+main	Q-T2S3	GT	vk_diff	
+main	Q-T2S3	GT	Rratio	0.1
+main	Q-T2S3	GF	zeta_V	
+main	Q-T2S3	GF	zeta_K	
+main	Q-T2S3	GF	pf	
+main	Q-T2S3	GF	ratio	
+main	Q-T2S3	GF	vk_diff	
+main	Q-T2S3	GF	Rratio	0.05
+main	Q-T3S1	G0	zeta_V	0.05
+main	Q-T3S1	G0	zeta_K	0.025
+main	Q-T3S1	G0	pf	0.05
+main	Q-T3S1	G0	ratio	
+main	Q-T3S1	G0	vk_diff	0.05
+main	Q-T3S1	G0	Rratio	0.05
+main	Q-T3S1	GT	zeta_V	0.1
+main	Q-T3S1	GT	zeta_K	0.05
+main	Q-T3S1	GT	pf	0.1
+main	Q-T3S1	GT	ratio	
+main	Q-T3S1	GT	vk_diff	0.1
+main	Q-T3S1	GT	Rratio	0.05
+main	Q-T3S1	GF	zeta_V	0.05
+main	Q-T3S1	GF	zeta_K	
+main	Q-T3S1	GF	pf	
+main	Q-T3S1	GF	ratio	
+main	Q-T3S1	GF	vk_diff	
+main	Q-T3S1	GF	Rratio	0.0125
+main	Q-T3S2	G0	zeta_V	
+main	Q-T3S2	G0	zeta_K	
+main	Q-T3S2	G0	pf	
+main	Q-T3S2	G0	ratio	
+main	Q-T3S2	G0	vk_diff	
+main	Q-T3S2	G0	Rratio	0.05
+main	Q-T3S2	GT	zeta_V	
+main	Q-T3S2	GT	zeta_K	
+main	Q-T3S2	GT	pf	
+main	Q-T3S2	GT	ratio	
+main	Q-T3S2	GT	vk_diff	
+main	Q-T3S2	GT	Rratio	0.0125
+main	Q-T3S2	GF	zeta_V	
+main	Q-T3S2	GF	zeta_K	
+main	Q-T3S2	GF	pf	
+main	Q-T3S2	GF	ratio	
+main	Q-T3S2	GF	vk_diff	
+main	Q-T3S2	GF	Rratio	
+main	Q-T3S3	G0	zeta_V	
+main	Q-T3S3	G0	zeta_K	
+main	Q-T3S3	G0	pf	0.2
+main	Q-T3S3	G0	ratio	
+main	Q-T3S3	G0	vk_diff	
+main	Q-T3S3	G0	Rratio	0.025
+main	Q-T3S3	GT	zeta_V	
+main	Q-T3S3	GT	zeta_K	
+main	Q-T3S3	GT	pf	
+main	Q-T3S3	GT	ratio	
+main	Q-T3S3	GT	vk_diff	
+main	Q-T3S3	GT	Rratio	
+main	Q-T3S3	GF	zeta_V	
+main	Q-T3S3	GF	zeta_K	
+main	Q-T3S3	GF	pf	
+main	Q-T3S3	GF	ratio	
+main	Q-T3S3	GF	vk_diff	
+main	Q-T3S3	GF	Rratio	
+tail	Q-T1S2	G0	zeta_V	
+tail	Q-T1S2	G0	zeta_K	
+tail	Q-T1S2	G0	pf	
+tail	Q-T1S2	G0	ratio	
+tail	Q-T1S2	G0	vk_diff	
+tail	Q-T1S2	G0	Rratio	
+tail	Q-T1S2	GT	zeta_V	
+tail	Q-T1S2	GT	zeta_K	
+tail	Q-T1S2	GT	pf	
+tail	Q-T1S2	GT	ratio	
+tail	Q-T1S2	GT	vk_diff	
+tail	Q-T1S2	GT	Rratio	
+tail	Q-T1S2	GF	zeta_V	
+tail	Q-T1S2	GF	zeta_K	
+tail	Q-T1S2	GF	pf	
+tail	Q-T1S2	GF	ratio	
+tail	Q-T1S2	GF	vk_diff	
+tail	Q-T1S2	GF	Rratio	
+tail	Q-T3S1	G0	zeta_V	
+tail	Q-T3S1	G0	zeta_K	
+tail	Q-T3S1	G0	pf	
+tail	Q-T3S1	G0	ratio	
+tail	Q-T3S1	G0	vk_diff	
+tail	Q-T3S1	G0	Rratio	
+tail	Q-T3S1	GT	zeta_V	
+tail	Q-T3S1	GT	zeta_K	
+tail	Q-T3S1	GT	pf	0.05
+tail	Q-T3S1	GT	ratio	
+tail	Q-T3S1	GT	vk_diff	
+tail	Q-T3S1	GT	Rratio	
+tail	Q-T3S1	GF	zeta_V	
+tail	Q-T3S1	GF	zeta_K	
+tail	Q-T3S1	GF	pf	
+tail	Q-T3S1	GF	ratio	
+tail	Q-T3S1	GF	vk_diff	
+tail	Q-T3S1	GF	Rratio	0.0125

@@ -1,0 +1,11 @@
+# Phase 3c a_max per cell from the ESS thresholds V 694.9455306480836, K 694.9455306480836
+cell	a_max_V	a_max_K	a_max
+Q-T1S1			
+Q-T1S2			
+Q-T1S3			
+Q-T2S1			
+Q-T2S2	0	0	0
+Q-T2S3			
+Q-T3S1	0.25	0.5	0.25
+Q-T3S2			
+Q-T3S3			

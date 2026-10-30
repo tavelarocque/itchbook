@@ -193,8 +193,14 @@ def fit_size_copula(acf: np.ndarray, lags: np.ndarray, H_grid=None) -> tuple[flo
 
 
 def signs(n: int, sm: dict, rng: np.random.Generator) -> np.ndarray:
+    """sign(g), g with the fGn + AR(1) ACF of sm; or, when sm has "tau" (the 3b two-component model),
+    sign(X + m), X = fGn(H), m ~ N(0, tau^2) drawn once for the day."""
     r = np.empty(n + 1)
     r[0] = 1.0
+    if "tau" in sm:
+        r[1:] = fgn_rho(np.arange(1, n + 1), sm["H"])
+        x = gaussian_acf(n, r, rng) + sm["tau"] * rng.standard_normal()
+        return np.where(x >= 0, 1, -1).astype(np.int8)
     r[1:] = sign_model_r(np.arange(1, n + 1), sm["w1"], sm["H"], sm["w2"], sm["phi"])
     return np.where(gaussian_acf(n, r, rng) >= 0, 1, -1).astype(np.int8)
 

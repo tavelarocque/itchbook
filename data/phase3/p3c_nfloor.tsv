@@ -1,0 +1,102 @@
+# Phase 3c N_floor trade-off (confirmation N_min from universe.tsv)
+cell	rho	rho_used	N_floor	stocks	T_max	reach_8_64	reach_16_256	reach_64_1024
+Q-T1S1	rho* = 1/80	0.0125	50	108	0.625	0	0	0
+Q-T1S1	rho* = 1/80	0.0125	100	79	1.25	0	0	0
+Q-T1S1	rho* = 1/80	0.0125	200	51	2.5	0	0	0
+Q-T1S1	rho* = 1/80	0.0125	400	38	5	0	0	0
+Q-T1S1	rho* = 1/80	0.0125	800	29	10	0	0	0
+Q-T1S1	1/20 (reference)	0.05	50	108	2.5	22	0	0
+Q-T1S1	1/20 (reference)	0.05	100	79	5	22	0	0
+Q-T1S1	1/20 (reference)	0.05	200	51	10	22	0	0
+Q-T1S1	1/20 (reference)	0.05	400	38	20	22	0	0
+Q-T1S1	1/20 (reference)	0.05	800	29	40	22	0	0
+Q-T1S1	1/10 (reference)	0.1	50	108	5	34	4	0
+Q-T1S1	1/10 (reference)	0.1	100	79	10	34	4	0
+Q-T1S1	1/10 (reference)	0.1	200	51	20	34	4	0
+Q-T1S1	1/10 (reference)	0.1	400	38	40	34	4	0
+Q-T1S1	1/10 (reference)	0.1	800	29	80	29	4	0
+Q-T1S2	1/20 (reference)	0.05	50	173	2.5	23	2	0
+Q-T1S2	1/20 (reference)	0.05	100	141	5	23	2	0
+Q-T1S2	1/20 (reference)	0.05	200	114	10	23	2	0
+Q-T1S2	1/20 (reference)	0.05	400	81	20	23	2	0
+Q-T1S2	1/20 (reference)	0.05	800	42	40	23	2	0
+Q-T1S2	1/10 (reference)	0.1	50	173	5	52	5	0
+Q-T1S2	1/10 (reference)	0.1	100	141	10	52	5	0
+Q-T1S2	1/10 (reference)	0.1	200	114	20	52	5	0
+Q-T1S2	1/10 (reference)	0.1	400	81	40	52	5	0
+Q-T1S2	1/10 (reference)	0.1	800	42	80	42	5	0
+Q-T1S3	1/20 (reference)	0.05	50	163	2.5	5	0	0
+Q-T1S3	1/20 (reference)	0.05	100	142	5	5	0	0
+Q-T1S3	1/20 (reference)	0.05	200	98	10	5	0	0
+Q-T1S3	1/20 (reference)	0.05	400	55	20	5	0	0
+Q-T1S3	1/20 (reference)	0.05	800	11	40	5	0	0
+Q-T1S3	1/10 (reference)	0.1	50	163	5	26	0	0
+Q-T1S3	1/10 (reference)	0.1	100	142	10	26	0	0
+Q-T1S3	1/10 (reference)	0.1	200	98	20	26	0	0
+Q-T1S3	1/10 (reference)	0.1	400	55	40	26	0	0
+Q-T1S3	1/10 (reference)	0.1	800	11	80	11	0	0
+Q-T2S1	1/20 (reference)	0.05	50	76	2.5	17	2	0
+Q-T2S1	1/20 (reference)	0.05	100	72	5	17	2	0
+Q-T2S1	1/20 (reference)	0.05	200	63	10	17	2	0
+Q-T2S1	1/20 (reference)	0.05	400	38	20	17	2	0
+Q-T2S1	1/20 (reference)	0.05	800	28	40	17	2	0
+Q-T2S1	1/10 (reference)	0.1	50	76	5	32	6	2
+Q-T2S1	1/10 (reference)	0.1	100	72	10	32	6	2
+Q-T2S1	1/10 (reference)	0.1	200	63	20	32	6	2
+Q-T2S1	1/10 (reference)	0.1	400	38	40	32	6	2
+Q-T2S1	1/10 (reference)	0.1	800	28	80	28	6	2
+Q-T2S2	1/20 (reference)	0.05	50	46	2.5	3	0	0
+Q-T2S2	1/20 (reference)	0.05	100	42	5	3	0	0
+Q-T2S2	1/20 (reference)	0.05	200	37	10	3	0	0
+Q-T2S2	1/20 (reference)	0.05	400	24	20	3	0	0
+Q-T2S2	1/20 (reference)	0.05	800	9	40	3	0	0
+Q-T2S2	1/10 (reference)	0.1	50	46	5	12	0	0
+Q-T2S2	1/10 (reference)	0.1	100	42	10	12	0	0
+Q-T2S2	1/10 (reference)	0.1	200	37	20	12	0	0
+Q-T2S2	1/10 (reference)	0.1	400	24	40	12	0	0
+Q-T2S2	1/10 (reference)	0.1	800	9	80	9	0	0
+Q-T2S3	1/20 (reference)	0.05	50	16	2.5	0	0	0
+Q-T2S3	1/20 (reference)	0.05	100	14	5	0	0	0
+Q-T2S3	1/20 (reference)	0.05	200	11	10	0	0	0
+Q-T2S3	1/20 (reference)	0.05	400	5	20	0	0	0
+Q-T2S3	1/20 (reference)	0.05	800	0	40	0	0	0
+Q-T2S3	1/10 (reference)	0.1	50	16	5	1	0	0
+Q-T2S3	1/10 (reference)	0.1	100	14	10	1	0	0
+Q-T2S3	1/10 (reference)	0.1	200	11	20	1	0	0
+Q-T2S3	1/10 (reference)	0.1	400	5	40	1	0	0
+Q-T2S3	1/10 (reference)	0.1	800	0	80	0	0	0
+Q-T3S1	rho* = 1/40	0.025	50	48	1.25	5	1	0
+Q-T3S1	rho* = 1/40	0.025	100	46	2.5	5	1	0
+Q-T3S1	rho* = 1/40	0.025	200	43	5	5	1	0
+Q-T3S1	rho* = 1/40	0.025	400	38	10	5	1	0
+Q-T3S1	rho* = 1/40	0.025	800	26	20	5	1	0
+Q-T3S1	1/20 (reference)	0.05	50	48	2.5	21	2	0
+Q-T3S1	1/20 (reference)	0.05	100	46	5	21	2	0
+Q-T3S1	1/20 (reference)	0.05	200	43	10	21	2	0
+Q-T3S1	1/20 (reference)	0.05	400	38	20	21	2	0
+Q-T3S1	1/20 (reference)	0.05	800	26	40	21	2	0
+Q-T3S1	1/10 (reference)	0.1	50	48	5	31	5	1
+Q-T3S1	1/10 (reference)	0.1	100	46	10	31	5	1
+Q-T3S1	1/10 (reference)	0.1	200	43	20	31	5	1
+Q-T3S1	1/10 (reference)	0.1	400	38	40	31	5	1
+Q-T3S1	1/10 (reference)	0.1	800	26	80	26	5	1
+Q-T3S2	1/20 (reference)	0.05	50	26	2.5	6	1	0
+Q-T3S2	1/20 (reference)	0.05	100	26	5	6	1	0
+Q-T3S2	1/20 (reference)	0.05	200	25	10	6	1	0
+Q-T3S2	1/20 (reference)	0.05	400	18	20	6	1	0
+Q-T3S2	1/20 (reference)	0.05	800	11	40	6	1	0
+Q-T3S2	1/10 (reference)	0.1	50	26	5	12	3	0
+Q-T3S2	1/10 (reference)	0.1	100	26	10	12	3	0
+Q-T3S2	1/10 (reference)	0.1	200	25	20	12	3	0
+Q-T3S2	1/10 (reference)	0.1	400	18	40	12	3	0
+Q-T3S2	1/10 (reference)	0.1	800	11	80	11	3	0
+Q-T3S3	1/20 (reference)	0.05	50	22	2.5	1	1	0
+Q-T3S3	1/20 (reference)	0.05	100	22	5	1	1	0
+Q-T3S3	1/20 (reference)	0.05	200	19	10	1	1	0
+Q-T3S3	1/20 (reference)	0.05	400	10	20	1	1	0
+Q-T3S3	1/20 (reference)	0.05	800	1	40	1	1	0
+Q-T3S3	1/10 (reference)	0.1	50	22	5	5	1	0
+Q-T3S3	1/10 (reference)	0.1	100	22	10	5	1	0
+Q-T3S3	1/10 (reference)	0.1	200	19	20	5	1	0
+Q-T3S3	1/10 (reference)	0.1	400	10	40	5	1	0
+Q-T3S3	1/10 (reference)	0.1	800	1	80	1	1	0
