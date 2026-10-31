@@ -54,7 +54,7 @@ def check_v_mean_of_logs():
     K = V.copy()
     Sm = np.broadcast_to(T, (2, 2, nT)).copy()
     raw = PO.Raw(V, K, Sm, np.full((2, 2, nA), np.nan), np.full((2, 2), 10**6))
-    e = PO.estimate2(raw, [("all",)])
+    e = PO.estimate2(raw, [("all",)], **PO.LEGACY_RULE)  # 2 stocks: below the range-reach rule's 5
     assert np.allclose(e["zeta_V"][:, :, 0], 1.4), e["zeta_V"][:, :, 0]
 
 

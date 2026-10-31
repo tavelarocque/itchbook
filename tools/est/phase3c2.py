@@ -122,9 +122,9 @@ def study_job(args) -> str:
             p.eps, p.q_mom, p.lm, np.ones(len(p.eps), bool), p.starts, p.lengths, T_grid=PO.T_GRID2, a_grid=PO.A_GRID2
         )
         raw = PO.raw_panel(pm, 8)
-        iv = PO.intervals2(raw, CEILS, rng, stock_jk=i < STOCK_JK_PANELS)
+        iv = PO.intervals2(raw, CEILS, rng, stock_jk=i < STOCK_JK_PANELS, **PO.LEGACY_RULE)
         if i < BAND_PANELS:
-            bv = PO.intervals2(raw, BANDS, np.random.default_rng([SEED, 98, i]))
+            bv = PO.intervals2(raw, BANDS, np.random.default_rng([SEED, 98, i]), **PO.LEGACY_RULE)
             for key in PO.ESTIMANDS2:
                 e, lo, hi, _ = bv[key]
                 put(f"band_{key}_est", e)

@@ -193,7 +193,7 @@ def study_job(args) -> str:
         pm = PO.panel_moments(
             p.eps, p.q_mom, p.lm, np.ones(len(p.eps), bool), p.starts, p.lengths, T_grid=PO.T_GRID2, a_grid=PO.A_GRID2
         )
-        iv = PO.intervals2(PO.raw_panel(pm, 8), CEILS, rng)
+        iv = PO.intervals2(PO.raw_panel(pm, 8), CEILS, rng, **PO.LEGACY_RULE)
         for key in PO.ESTIMANDS2:
             e, lo, hi, _ = iv[key]
             for nm, arr in (("est", e), ("lo", lo), ("hi", hi)):

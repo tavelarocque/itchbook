@@ -54,18 +54,20 @@ def check_log_slope_equals_K_over_T():
     K = np.stack([np.stack([2.0 * T**1.3] * 2), np.stack([5.0 * T**1.3] * 2)])
     V = np.broadcast_to(T**1.6, (2, 2, NT))
     Sm = np.broadcast_to(3.0 * T**1.4, (2, 2, NT))
-    e = PO.estimate2(raw(K, V, Sm), ALL)
+    e = PO.estimate2(raw(K, V, Sm), ALL, **PO.LEGACY_RULE)  # 2 stocks: below the range-reach rule's 5
     assert np.allclose(e["zeta_K"][:, :, 0], 1.3) and np.allclose(e["zeta_V"][:, :, 0], 1.6)
     assert not e["dropped_K"].any()
 
 
 def check_nonpositive_pooled_drops_T():
     """Stock 0 has k~ = -10 at T = 8, so the pooled k~ there is negative: T = 8 is dropped (flagged), the
-    [4, 32] curve joins T = 4, 16, 32 with both stocks, and no stock-day is excluded elsewhere."""
+    [4, 32] curve joins T = 4, 16, 32 with both stocks, and no stock-day is excluded elsewhere. This is the
+    estimator before 31 Oct 2026 (LEGACY_RULE); under the range-reach rule the shortened range is undefined
+    (test_3c4.check_full_range_only)."""
     base = T**1.25
     K = np.stack([np.stack([base] * 2), np.stack([3 * base] * 2)])
     K[0, :, 3] = -10 * 8.0  # T = 8: k~ = K / T = -10
-    e = PO.estimate2(raw(K), ALL)
+    e = PO.estimate2(raw(K), ALL, **PO.LEGACY_RULE)
     assert e["dropped_K"][0, 3, 0] and e["dropped_K"][:, [0, 1, 2, 4, 5, 6, 7, 8], 0].sum() == 0
     pts = [2, 4, 5]  # T = 4, 16, 32
     m = np.array([(K[0, 0, t] + K[1, 0, t]) / 2 / T[t] for t in pts])

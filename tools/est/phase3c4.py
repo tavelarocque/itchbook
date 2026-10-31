@@ -10,8 +10,11 @@ study    N_PANELS panels per NASDAQ cell for G0, GT and GF (GF used only for the
          continuous-series stress test (the 3c-3 path) at STRESS_CELLS
 topup    panels N_PANELS .. N_TOPUP - 1 for every (cell, generator) with an element inside the Monte Carlo
          band at some ceiling (coverage within 2 MC SE of 0.85)
-analyse  bias, coverage with MC SE, pass rule, contiguous rho*, binding constraints, interval method
-         shares, reach
+analyse  bias, coverage with MC SE, pass rule, contiguous rho* per cell and per tick bin, binding
+         estimators, interval method shares, reach. Applies the rules decided 31 Oct 2026 from
+         docs/phase3c4_diagnosis.md to the saved panels: range reach (pooled.range_rule, at least 5 stocks at
+         T2, full range, evaluable if defined in 90 % of panels), the P-F slope by coverage only, and tick-bin
+         rho*. The saved chunks were computed with pooled.LEGACY_RULE; study keeps it so chunks resume exactly.
 
   uv run --group analysis tools/est/phase3c4.py check|study|topup|analyse [--panels N] [--workers 3]
 """
@@ -49,7 +52,8 @@ GENS = ("G0", "GT", "GF")
 STRESS_CELLS = ("Q-T3S1",)
 STRESS_GENS = ("G0", "GT")
 STRESS_PANELS = 100
-BIAS_MAX, COV_MIN, MIN_EVAL = 0.02, 0.85, 0.5
+BIAS_MAX, COV_MIN = 0.02, 0.85
+MIN_EVAL = 0.9  # rule 1 (31 Oct 2026, docs/phase3c4_diagnosis.md): defined in >= 90 % of panels; was 0.5
 KW = dict(T_grid=T_GRID4, ranges=RANGES4)
 
 
@@ -58,9 +62,11 @@ def criterion(gen: str) -> tuple[str, ...]:
     return ("pf",) if gen == "GF" else ("zeta_V", "zeta_K", "pf", "Rratio")
 
 
-def passes(bias, cov, mc_se) -> np.ndarray:
-    """|bias| < 0.02, and coverage fails only when coverage + 2 MC SE < 0.85."""
-    return (np.abs(bias) < BIAS_MAX) & ~(np.asarray(cov) + 2 * np.asarray(mc_se) < COV_MIN)
+def passes(bias, cov, mc_se, coverage_only: bool = False) -> np.ndarray:
+    """|bias| < 0.02, and coverage fails only when coverage + 2 MC SE < 0.85. coverage_only (rule 2, 31 Oct 2026,
+    docs/phase3c4_diagnosis.md: the P-F slope) drops the bias half."""
+    cov_ok = ~(np.asarray(cov) + 2 * np.asarray(mc_se) < COV_MIN)
+    return cov_ok if coverage_only else (np.abs(bias) < BIAS_MAX) & cov_ok
 
 
 def in_mc_band(cov, mc_se) -> np.ndarray:
@@ -166,7 +172,7 @@ def study_job(args) -> str:
         pm = PO.panel_moments(
             p.eps, p.q_mom, p.lm, np.ones(len(p.eps), bool), p.starts, p.lengths, T_grid=T_GRID4, a_grid=PO.A_GRID2
         )
-        iv = PO.intervals3(PO.raw_panel(pm, 8), CEILS, rng, keys=keys, **KW)
+        iv = PO.intervals3(PO.raw_panel(pm, 8), CEILS, rng, keys=keys, **KW, **PO.LEGACY_RULE)  # as saved
         for key in keys:
             e, lo, hi, meth = iv[key]
             for nm, arr in (("est", e), ("lo", lo), ("hi", hi)):
@@ -210,6 +216,14 @@ def load(kind, cell, gen) -> dict:
 
 
 # ---- analysis -------------------------------------------------------------------------------------
+# Rule changes decided 31 Oct 2026 from docs/phase3c4_diagnosis.md, applied to the saved panels (no new
+# simulation; bias bound, coverage bound, Monte Carlo band and panels unchanged):
+#   1. range reach (pooled.MIN_REACH, pooled.range_rule): an element is defined for a panel only if at least 5
+#      stocks reach T2 under the ceiling, and zeta_K only over the full range; it is evaluable at a ceiling only
+#      if defined in at least MIN_EVAL = 90 % of panels. Bias and coverage are over the defined panels.
+#   2. the P-F slope is judged by coverage only (G0, GT and GF); its bias is still reported.
+#   3. rho* per cell and per tick bin (the minimum of its cells' rho*), with the binding estimator named.
+COVERAGE_ONLY = ("pf",)
 
 
 def element_names(key) -> list[str]:
@@ -228,20 +242,48 @@ def truth4(cell, gen) -> dict:
     return out
 
 
-def evaluate(st, tr, m, keys) -> dict:
+def panel_ns(cell, gen, n) -> np.ndarray:
+    """(n, S) each stock's fewest runs on any study day, per panel: the day lengths are re-drawn from the panel's
+    seeded generator (day_lengths is study_job's first draw, before any simulation)."""
+    nc = P3.n_confirm(cell)
+    out = []
+    for i in range(n):
+        rng = np.random.default_rng([SEED, P3.q_cells().index(cell), GENS.index(gen), i])
+        out.append(PC.day_lengths(cell, nc, 8, rng).min(axis=1))
+    return np.array(out)
+
+
+def defined_masks(st, cell, gen) -> tuple[dict, np.ndarray]:
+    """Rule 1 on saved panels: key -> (P, ..., n_ceilings) defined, and the reach (P, n_ranges, n_ceilings).
+    The saved point estimates' dropped_K (non-positive pooled k~ at a horizon) marks a shortened zeta_K range."""
+    Ns = panel_ns(cell, gen, len(st["dropped_K"]))
+    reach = np.stack([PO.range_reach(ns, CEILS, RANGES4) for ns in Ns])
+    return PO.range_rule(reach, kept_full_from_dropped(st["dropped_K"]), PO.A_GRID2, PO.A_MAX2), reach
+
+
+def kept_full_from_dropped(dk, T_grid=T_GRID4, ranges=RANGES4) -> np.ndarray:
+    """dropped_K (..., na, nT, nm) -> (..., na, nr, nm): no horizon of the range dropped. With at least one stock
+    at T2 every horizon has eligible stocks, so this is core2's 'every horizon kept'."""
+    return np.stack([~dk[..., (T_grid >= lo) & (T_grid <= hi), :].any(axis=-2) for lo, hi in ranges], axis=-2)
+
+
+def evaluate(st, tr, m, keys, dm) -> dict:
     out = {}
     for key in keys:
-        e = st[f"{key}_est"][..., m].astype(float)
+        d = dm[key][..., m]
+        e = np.where(d, st[f"{key}_est"][..., m].astype(float), np.nan)
         lo, hi = st[f"{key}_lo"][..., m].astype(float), st[f"{key}_hi"][..., m].astype(float)
         t = tr[key][0]
         fin = np.isfinite(e)
-        with warnings.catch_warnings():
+        nd = fin.sum(0).ravel()
+        with warnings.catch_warnings(), np.errstate(invalid="ignore", divide="ignore"):
             warnings.simplefilter("ignore", RuntimeWarning)
-            b = np.nanmean(np.where(fin, e - t, np.nan), axis=0).ravel()
-        cv = np.mean((lo <= t) & (t <= hi), axis=0).ravel()
-        se = np.sqrt(cv * (1 - cv) / len(e))
-        ev = fin.mean(0).ravel() >= MIN_EVAL
-        ok = passes(b, cv, se)
+            b = np.nanmean(e - t, axis=0).ravel()
+            cv = (np.sum(fin & (lo <= t) & (t <= hi), axis=0).ravel() / nd)  # over defined panels
+            se = np.sqrt(cv * (1 - cv) / nd)
+        dfrac = fin.mean(0).ravel()
+        ev = dfrac >= MIN_EVAL
+        ok = passes(b, cv, se, coverage_only=key in COVERAGE_ONLY)
         band = in_mc_band(cv, se) & ev
         names = element_names(key)
         out[key] = {
@@ -250,9 +292,12 @@ def evaluate(st, tr, m, keys) -> dict:
             "pass": bool(ev.any() and ok[ev].all()),
             "max_abs_bias": float(np.max(np.abs(b[ev]))) if ev.any() else np.nan,
             "min_cov": float(np.min(cv[ev])) if ev.any() else np.nan,
+            "min_defined": float(dfrac.min()),
+            "min_defined_eval": float(dfrac[ev].min()) if ev.any() else np.nan,
             "in_band": int(band.sum()),
             "panels": len(e),
-            "fails": [(names[i], float(b[i]), float(cv[i]), float(se[i])) for i in np.flatnonzero(ev & ~ok)],
+            "fails": [(names[i], float(b[i]), float(cv[i]), float(se[i]), float(dfrac[i]))
+                      for i in np.flatnonzero(ev & ~ok)],
         }
     return out
 
@@ -266,6 +311,19 @@ def ceiling_status(ev_cg: dict, gens, cell_keys) -> dict:
     return st
 
 
+def tick_bin_rho(cell_rho: dict) -> float:
+    """The minimum of the cells' rho*; none (NaN) if any cell has none."""
+    v = np.array(list(cell_rho.values()), dtype=float)
+    return float(np.min(v)) if np.all(np.isfinite(v)) else np.nan
+
+
+def fail_score(f, key) -> float:
+    """The worst-element score of rho.md: |bias| / 0.02 (not for a coverage-only estimator) + the coverage
+    shortfall below 0.85 - 2 MC SE in units of 0.05."""
+    b = 0.0 if key in COVERAGE_ONLY else abs(f[1]) / BIAS_MAX
+    return b + max(0.0, COV_MIN - f[2] - 2 * f[3]) / 0.05
+
+
 def topup_combos() -> list[tuple]:
     out = []
     for c in P3.q_cells():
@@ -274,7 +332,9 @@ def topup_combos() -> list[tuple]:
             if len(st[f"{criterion(g)[0]}_est"]) >= N_TOPUP:
                 continue
             tr = truth4(c, g)
-            if any(evaluate(st, tr, m, criterion(g))[k]["in_band"] for m in range(len(EDGES)) for k in criterion(g)):
+            dm, _ = defined_masks(st, c, g)
+            evs = [evaluate(st, tr, m, criterion(g), dm) for m in range(len(EDGES))]
+            if any(x[k]["in_band"] for x in evs for k in criterion(g)):
                 out.append(("ind", c, g))
     return out
 
@@ -291,18 +351,24 @@ def f(x, d=3) -> str:
     return "-" if not np.isfinite(v) else f"{v:.{d}f}"
 
 
+ABBR = {"zeta_V": "V", "zeta_K": "K", "pf": "PF", "Rratio": "R"}
+
+
 def analyse(log=print) -> None:
     rep = PHASE3C4 / "report"
     rep.mkdir(parents=True, exist_ok=True)
-    rows, ev, timing, meth = [], {}, [], {}
+    rows, ev, timing, meth, reach_med, reach_def = [], {}, [], {}, {}, {}
     for kind, cells, gens in (("ind", P3.q_cells(), GENS), ("cont", STRESS_CELLS, STRESS_GENS)):
         for c in cells:
             for g in gens:
                 st = load(kind, c, g)
                 tr = truth4(c, g)
+                dm, rch = defined_masks(st, c, g)
+                reach_med[(kind, c, g)] = np.median(rch, axis=0)
+                reach_def[(kind, c, g)] = (rch >= PO.MIN_REACH).mean(axis=0)
                 timing.append((kind, c, g, len(st[f"{criterion(g)[0]}_est"]), st["seconds"]))
                 for m, e in enumerate(EDGES):
-                    ev[(kind, c, g, e)] = evaluate(st, tr, m, criterion(g))
+                    ev[(kind, c, g, e)] = evaluate(st, tr, m, criterion(g), dm)
                     for key, d in ev[(kind, c, g, e)].items():
                         rows.append(
                             {
@@ -316,61 +382,90 @@ def analyse(log=print) -> None:
                             }
                         )
                 for key in criterion(g):
-                    mm = st[f"{key}_method"].ravel()
+                    mm = np.where(dm[key], st[f"{key}_method"], -1).ravel()  # defined elements only
                     meth.setdefault((kind, key), np.zeros(4, int))
                     meth[(kind, key)] += np.bincount(mm[mm >= 0], minlength=4)[:4]
     P3.write_tsv(
         OUT / "p3c4_ceilings.tsv",
         rows,
-        "Phase 3c-4 bias, 90 % coverage (widest of three intervals) by "
-        "ceiling; ind = independent stationary days, cont = continuous-series stress test",
+        "Phase 3c-4 bias, 90 % coverage (widest of three intervals) by ceiling, under the 31 Oct 2026 rules "
+        "(range reach >= 5 stocks at T2, evaluable if defined in >= 90 % of panels, P-F slope by coverage only); "
+        "ind = independent stationary days, cont = continuous-series stress test",
     )
-    cell_rho, L = (
-        {},
-        [
-            "| days | cell | panels (G0 / GT / GF) | " + " | ".join(edge_str(e) for e in EDGES) + " | rho* |",
-            "|---|---|---|" + "---|" * len(EDGES) + "---|",
-        ],
-    )
-    for kind, cells, gens in (("ind", P3.q_cells(), GENS), ("cont", STRESS_CELLS, STRESS_GENS)):
-        for c in cells:
-            evc = {(g, e): ev[(kind, c, g, e)] for g in gens for e in EDGES}
-            status = ceiling_status(evc, gens, criterion)
-            r = rho_star(status)
-            cell_rho[(kind, c)] = r
-            pan = " / ".join(str(ev[(kind, c, g, EDGES[0])][criterion(g)[0]]["panels"]) for g in gens)
-            cells_ = []
-            for e in EDGES:
-                if status[e] is None:
-                    cells_.append("n/e")
-                    continue
-                fails = [(g,) + x for g in gens for k in criterion(g) for x in ev[(kind, c, g, e)][k]["fails"]]
-                if not fails:
-                    cells_.append("pass")
-                else:
-                    wb = max(fails, key=lambda x: abs(x[2]) / BIAS_MAX + max(0.0, COV_MIN - x[3] - 2 * x[4]) / 0.05)
-                    cells_.append(f"fail {len(fails)}: {wb[0]} {wb[1]} b {wb[2]:+.3f} c {wb[3]:.2f}+-{wb[4]:.2f}")
-            L.append(f"| {kind} | {c} | {pan} | " + " | ".join(cells_) + f" | {edge_str(r)} |")
-    (rep / "rho.md").write_text("\n".join(L) + "\n")
+    combos = [("ind", c, GENS) for c in P3.q_cells()] + [("cont", c, STRESS_GENS) for c in STRESS_CELLS]
+    cell_rho, binding = {}, {}
+    S = [
+        "| days | cell | " + " | ".join(edge_str(e) for e in EDGES) + " | ceilings that pass | rho* |",
+        "|---|---|" + "---|" * len(EDGES) + "---|---|",
+    ]
+    D = [
+        "| days | cell | panels (G0 / GT / GF) | " + " | ".join(edge_str(e) for e in EDGES) + " | rho* |",
+        "|---|---|---|" + "---|" * len(EDGES) + "---|",
+    ]
+    for kind, c, gens in combos:
+        evc = {(g, e): ev[(kind, c, g, e)] for g in gens for e in EDGES}
+        status = ceiling_status(evc, gens, criterion)
+        r = rho_star(status)
+        cell_rho[(kind, c)] = r
+        pan = " / ".join(str(ev[(kind, c, g, EDGES[0])][criterion(g)[0]]["panels"]) for g in gens)
+        cs, ds, ok_e = [], [], []
+        for e in EDGES:
+            fails = [(g, k) + x for g in gens for k in criterion(g) for x in ev[(kind, c, g, e)][k]["fails"]]
+            fam = " ".join(f"{ABBR[k]} {sum(x[1] == k for x in fails)}" for k in ABBR if any(x[1] == k for x in fails))
+            if status[e] is None:
+                cs.append("n/e" + (f" ({fam})" if fails else ""))
+                ds.append("n/e")
+                continue
+            if not fails:
+                cs.append("pass")
+                ds.append("pass")
+                ok_e.append(edge_str(e))
+                continue
+            wb = max(fails, key=lambda x: fail_score(x[2:], x[1]))
+            binding.setdefault((kind, c), {})[e] = wb
+            cs.append(f"fail: {fam}")
+            ds.append(f"fail {len(fails)}: binding {wb[0]} {wb[1]}, worst {wb[2]} b {wb[3]:+.3f} "
+                      f"c {wb[4]:.2f}+-{wb[5]:.2f} def {wb[6]:.2f}")
+        S.append(f"| {kind} | {c} | " + " | ".join(cs) + f" | {', '.join(ok_e) or 'none'} | {edge_str(r)} |")
+        D.append(f"| {kind} | {c} | {pan} | " + " | ".join(ds) + f" | {edge_str(r)} |")
+    (rep / "status.md").write_text("\n".join(S) + "\n")
+    (rep / "rho.md").write_text("\n".join(D) + "\n")
+    # tick bins: the minimum of the cells' rho*, and the cell and estimator that bind it
+    bins, B = {}, ["| tick bin | cells' rho* | rho* | binding |", "|---|---|---|---|"]
+    for tb in ("T1", "T2", "T3"):
+        cs = [c for c in P3.q_cells() if c[2:4] == tb]
+        rb = tick_bin_rho({c: cell_rho[("ind", c)] for c in cs})
+        bins[tb] = rb
+        why = []
+        for c in cs:
+            rc = cell_rho[("ind", c)]
+            if not (rc == rb or not (np.isfinite(rc) or np.isfinite(rb))):
+                continue  # only the cells at the tick bin's rho* bind it
+            nxt = [e for e in EDGES if (not np.isfinite(rc) or e > rc) and e in binding.get(("ind", c), {})]
+            if nxt:
+                wb = binding[("ind", c)][nxt[0]]
+                why.append(f"{c} fails at {edge_str(nxt[0])}: {wb[0]} {wb[1]} ({wb[2]})")
+        B.append(f"| Q-{tb} | " + ", ".join(f"{c} {edge_str(cell_rho[('ind', c)])}" for c in cs)
+                 + f" | {edge_str(rb)} | {'; '.join(why)} |")
+    (rep / "rho_bins.md").write_text("\n".join(B) + "\n")
     # per estimator and generator: contiguous rho* of each alone
     L = [
         "| days | cell | " + " | ".join(f"{g} {k}" for g in GENS for k in criterion(g)) + " |",
         "|---|---|" + "---|" * sum(len(criterion(g)) for g in GENS),
     ]
     est_rows = []
-    for kind, cells, gens in (("ind", P3.q_cells(), GENS), ("cont", STRESS_CELLS, STRESS_GENS)):
-        for c in cells:
-            vals = []
-            for g in gens:
-                for k in criterion(g):
-                    stt = {
-                        e: (ev[(kind, c, g, e)][k]["pass"] if ev[(kind, c, g, e)][k]["evaluable"] else None)
-                        for e in EDGES
-                    }
-                    r = rho_star(stt)
-                    vals.append(edge_str(r))
-                    est_rows.append({"paths": kind, "cell": c, "gen": g, "estimator": k, "rho_star": r})
-            L.append(f"| {kind} | {c} | " + " | ".join(vals) + " |")
+    for kind, c, gens in combos:
+        vals = []
+        for g in gens:
+            for k in criterion(g):
+                stt = {
+                    e: (ev[(kind, c, g, e)][k]["pass"] if ev[(kind, c, g, e)][k]["evaluable"] else None)
+                    for e in EDGES
+                }
+                r = rho_star(stt)
+                vals.append(edge_str(r))
+                est_rows.append({"paths": kind, "cell": c, "gen": g, "estimator": k, "rho_star": r})
+        L.append(f"| {kind} | {c} | " + " | ".join(vals) + " |")
     (rep / "rho_est.md").write_text("\n".join(L) + "\n")
     P3.write_tsv(
         OUT / "p3c4_rho.tsv",
@@ -378,8 +473,11 @@ def analyse(log=print) -> None:
         + [
             {"paths": k, "cell": c, "gen": "all", "estimator": "criterion", "rho_star": v}
             for (k, c), v in cell_rho.items()
-        ],
-        "Phase 3c-4 rho*: largest ceiling with every evaluable ceiling up to it passing",
+        ]
+        + [{"paths": "ind", "cell": f"Q-{tb}", "gen": "all", "estimator": "tick bin", "rho_star": v}
+           for tb, v in bins.items()],
+        "Phase 3c-4 rho* under the 31 Oct 2026 rules: largest ceiling with every evaluable ceiling up to it "
+        "passing; tick bin = the minimum of its cells' rho*",
     )
     L = ["| days | estimator | elements x panels | " + " | ".join(PO.METHODS3) + " |", "|---|---|---|---|---|---|"]
     for (kind, key), cnt in sorted(meth.items()):
@@ -389,11 +487,26 @@ def analyse(log=print) -> None:
     L = ["| days | cell | gen | panels | worker seconds |", "|---|---|---|---|---|"]
     L += [f"| {k} | {c} | {g} | {n} | {s:.0f} |" for k, c, g, n, s in timing]
     (rep / "time.md").write_text("\n".join(L) + "\n")
-    reach(cell_rho, rep)
+    L = ["| days | cell | gen | " + " | ".join(f"{r} {edge_str(e)}" for r in RANGE_NAMES for e in EDGES) + " |",
+         "|---|---|---|" + "---|" * (len(RANGE_NAMES) * len(EDGES))]
+    for (kind, c, g), md in reach_med.items():
+        L.append(f"| {kind} | {c} | {g} | " + " | ".join(f"{md[r, m]:g}" for r in range(len(RANGES4))
+                                                         for m in range(len(EDGES))) + " |")
+    (rep / "panel_reach.md").write_text("\n".join(L) + "\n")
+    L = ["| days | cell | gen | range | " + " | ".join(edge_str(e) for e in EDGES) + " |",
+         "|---|---|---|---|" + "---|" * len(EDGES)]
+    for (kind, c, g), fr in reach_def.items():
+        for r, rn in enumerate(RANGE_NAMES):
+            L.append(f"| {kind} | {c} | {g} | {rn} | " + " | ".join(f"{x:.2f}" for x in fr[r]) + " |")
+    (rep / "defined.md").write_text("\n".join(L) + "\n")
+    reach(bins, rep)
     log("rho*: " + json.dumps({f"{k} {c}": edge_str(v) for (k, c), v in cell_rho.items()}))
+    log("tick bins: " + json.dumps({tb: edge_str(v) for tb, v in bins.items()}))
 
 
-def reach(cell_rho, rep) -> None:
+def reach(bins, rep) -> None:
+    """Confirmation stocks with N_min >= T2 / rho at their tick bin's rho* (none found: the 1/20 fallback,
+    marked)."""
     head, nmin = None, {}
     for line in open(E.UNIVERSE):
         if line.startswith("#"):
@@ -406,43 +519,26 @@ def reach(cell_rho, rep) -> None:
             nmin.setdefault(row[head["cell"]], []).append(int(row[head["n_min"]]))
     rows = []
     L = ["| group | rho used | confirm stocks | " + " | ".join(RANGE_NAMES) + " |", "|---|---|---|---|---|"]
-    for c in P3.q_cells():
-        r = cell_rho[("ind", c)]
-        used = r if np.isfinite(r) else 1 / 20
-        nm = np.array(nmin[c])
-        n = [int(np.sum(nm >= hi / used)) for _, hi in RANGES4]
-        rows.append(
-            {"group": c, "rho_used": used, "rho_found": r, "confirm": len(nm), **dict(zip(RANGE_NAMES, n, strict=True))}
-        )
-        L.append(
-            f"| {c} | {edge_str(used)}{'' if np.isfinite(r) else ' (none found)'} | {len(nm)} | "
-            + " | ".join(map(str, n))
-            + " |"
-        )
     for tb in ("T1", "T2", "T3"):
+        r = bins[tb]
+        used = r if np.isfinite(r) else 1 / 20
+        lab = edge_str(used) + ("" if np.isfinite(r) else " (none found)")
         cs = [c for c in P3.q_cells() if c[2:4] == tb]
-        tot = [0, 0]
+        tot, conf = [0, 0], 0
         for c in cs:
-            r = cell_rho[("ind", c)]
-            used = r if np.isfinite(r) else 1 / 20
             nm = np.array(nmin[c])
-            for i, (_, hi) in enumerate(RANGES4):
-                tot[i] += int(np.sum(nm >= hi / used))
-        conf = sum(len(nmin[c]) for c in cs)
-        rows.append(
-            {
-                "group": f"Q-{tb}",
-                "rho_used": "per cell",
-                "rho_found": "",
-                "confirm": conf,
-                **dict(zip(RANGE_NAMES, tot, strict=True)),
-            }
-        )
-        L.append(
-            f"| Q-{tb} (S1+S2+S3, each at its cell's rho) | per cell | {conf} | " + " | ".join(map(str, tot)) + " |"
-        )
+            n = [int(np.sum(nm >= hi / used)) for _, hi in RANGES4]
+            tot = [a + b for a, b in zip(tot, n, strict=True)]
+            conf += len(nm)
+            rows.append({"group": c, "rho_used": used, "rho_found": r, "confirm": len(nm),
+                         **dict(zip(RANGE_NAMES, n, strict=True))})
+            L.append(f"| {c} | {lab} | {len(nm)} | " + " | ".join(map(str, n)) + " |")
+        rows.append({"group": f"Q-{tb}", "rho_used": used, "rho_found": r, "confirm": conf,
+                     **dict(zip(RANGE_NAMES, tot, strict=True))})
+        L.append(f"| **Q-{tb}** (pooled) | {lab} | {conf} | " + " | ".join(map(str, tot)) + " |")
     (rep / "reach.md").write_text("\n".join(L) + "\n")
-    P3.write_tsv(OUT / "p3c4_reach.tsv", rows, "Phase 3c-4 reach: confirmation stocks with N_min >= T2 / rho")
+    P3.write_tsv(OUT / "p3c4_reach.tsv", rows,
+                 "Phase 3c-4 reach: confirmation stocks with N_min >= T2 / rho at the tick bin's rho*")
 
 
 def main() -> int:

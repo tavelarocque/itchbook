@@ -34,6 +34,8 @@ concatenated run arrays (eps, q, lm, ok) and per stock-day (start, length).
    Masks: ("all",) every stock; ("ceil", rho) stock s at T iff T <= rho N_s,
    N_s = its fewest runs on any study day; ("band", lo, hi) iff lo < T / N_s <= hi.
    An increment's eligibility is decided at its upper horizon T_j+1.
+   Range reach (core2, from 31 Oct 2026; see MIN_REACH): an estimate over [T1, T2] is defined only if at
+   least 5 stocks are eligible at T2, and zeta_K only if every horizon of the range is kept.
 4. Inference (intervals): the day-and-stock cluster bootstrap of
    inference.cluster_bootstrap (one draw of days shared by all stocks, stocks
    drawn with replacement, the same random draws in the same order), B = 200,
@@ -360,6 +362,31 @@ RANGES2 = ((4, 32), (8, 64), (16, 256))
 A_MAX2 = 1.0
 MIN_KEPT = 3
 ESTIMANDS2 = ("zeta_V", "zeta_K", "pf", "vk_diff", "Rratio")
+# Range-reach rule (decided 31 Oct 2026 from docs/phase3c4_diagnosis.md, which found zeta_K "estimated" from
+# the lower horizons of a range that no stock reached): an estimate over [T1, T2] is defined for a panel only
+# if at least MIN_REACH stocks are eligible at T2 under the mask, and zeta_K only if every horizon of the range
+# is kept (never a slope over a shortened range). Undefined elements are NaN.
+MIN_REACH = 5
+LEGACY_RULE = dict(min_reach=0, full_range=False)  # the estimator before 31 Oct 2026 (3c-2, 3c-3, 3c-4 chunks)
+
+
+def range_reach(Ns: np.ndarray, specs, ranges=RANGES2) -> np.ndarray:
+    """(n_ranges, n_masks): the number of stocks eligible at each range's top horizon T2."""
+    return masks(Ns, np.array([hi for _, hi in ranges]), specs).sum(axis=0)
+
+
+def range_rule(reach: np.ndarray, kept_full: np.ndarray, a_grid=A_GRID2, a_max=A_MAX2, min_reach: int = MIN_REACH,
+               full_range: bool = True) -> dict:
+    """Where each estimand is defined under the range-reach rule. reach (..., nr, nm) from range_reach;
+    kept_full (..., na, nr, nm): zeta_K kept every horizon of the range. Returns key -> boolean mask with the
+    estimand's shape: zeta_V, zeta_K (..., na, nr, nm); pf, vk_diff, Rratio (..., nr, nm). The P-F slope and
+    vk_diff need zeta_K over a <= a_max (a <= 0.5) to be defined; R_{1/2}/R_0 over [T1, T2] needs the reach."""
+    ok = np.asarray(reach) >= min_reach
+    zV = np.broadcast_to(ok[..., None, :, :], np.shape(kept_full))
+    zK = zV & np.asarray(kept_full) if full_range else zV
+    a_grid = np.asarray(a_grid)
+    return {"zeta_V": zV, "zeta_K": zK, "pf": zK[..., a_grid <= a_max, :, :].all(axis=-3),
+            "vk_diff": zK[..., a_grid <= A_RATIO, :, :].all(axis=-3), "Rratio": ok}
 
 
 @dataclass
@@ -476,8 +503,10 @@ def zeta_mean_of_logs(v, ws, Ns, specs, T_grid=T_GRID2, ranges=RANGES2):
 
 
 def core2(raw: Raw, Wd, Ws, specs, norm: str = "tilde", T_grid=T_GRID2, a_grid=A_GRID2, ranges=RANGES2,
-          a_max=A_MAX2) -> dict:
-    """The pooled estimands of ESTIMANDS2 (and R, a_star, diagnostics) with a leading replicate axis."""
+          a_max=A_MAX2, min_reach: int = MIN_REACH, full_range: bool = True) -> dict:
+    """The pooled estimands of ESTIMANDS2 (and R, a_star, diagnostics) with a leading replicate axis. The
+    range-reach rule (range_rule) applies on the tilde path; reach is the panel's, the same in every replicate.
+    **LEGACY_RULE reproduces the estimator before 31 Oct 2026."""
     if norm == "old":
         T = np.asarray(T_grid, dtype=float)
         excl = ~(raw.K1_t > K1_Z)
@@ -520,6 +549,12 @@ def core2(raw: Raw, Wd, Ws, specs, norm: str = "tilde", T_grid=T_GRID2, a_grid=A
     wh = _ols_weights(a_grid[h])
     out["vk_diff"] = (np.einsum("barm,a->brm", out["zeta_V"][:, h], wh)
                       - 2 * np.einsum("barm,a->brm", out["zeta_K"][:, h], wh))  # descriptive only
+    n_range = np.array([np.sum((T_grid >= lo) & (T_grid <= hi)) for lo, hi in ranges])
+    out["reach"] = range_reach(Ns, specs, ranges)
+    rule = range_rule(out["reach"][None], out["kept_K"] == n_range[None, None, :, None], a_grid, a_max,
+                      min_reach, full_range)
+    for key, ok in rule.items():
+        out[key] = np.where(ok, out[key], np.nan)
     return out
 
 

@@ -1,0 +1,104 @@
+# Phase 3c-4 rho* under the 31 Oct 2026 rules: largest ceiling with every evaluable ceiling up to it passing; tick bin = the minimum of its cells' rho*
+paths	cell	gen	estimator	rho_star
+ind	Q-T1S1	G0	zeta_V	0.2
+ind	Q-T1S1	G0	zeta_K	0.2
+ind	Q-T1S1	G0	pf	0.2
+ind	Q-T1S1	G0	Rratio	0.2
+ind	Q-T1S1	GT	zeta_V	0.2
+ind	Q-T1S1	GT	zeta_K	0.2
+ind	Q-T1S1	GT	pf	0.2
+ind	Q-T1S1	GT	Rratio	0.2
+ind	Q-T1S1	GF	pf	0.2
+ind	Q-T1S2	G0	zeta_V	0.05
+ind	Q-T1S2	G0	zeta_K	0.2
+ind	Q-T1S2	G0	pf	0.2
+ind	Q-T1S2	G0	Rratio	0.1
+ind	Q-T1S2	GT	zeta_V	0.05
+ind	Q-T1S2	GT	zeta_K	0.2
+ind	Q-T1S2	GT	pf	0.2
+ind	Q-T1S2	GT	Rratio	0.1
+ind	Q-T1S2	GF	pf	0.2
+ind	Q-T1S3	G0	zeta_V	
+ind	Q-T1S3	G0	zeta_K	0.2
+ind	Q-T1S3	G0	pf	0.2
+ind	Q-T1S3	G0	Rratio	
+ind	Q-T1S3	GT	zeta_V	
+ind	Q-T1S3	GT	zeta_K	0.2
+ind	Q-T1S3	GT	pf	0.2
+ind	Q-T1S3	GT	Rratio	
+ind	Q-T1S3	GF	pf	0.2
+ind	Q-T2S1	G0	zeta_V	
+ind	Q-T2S1	G0	zeta_K	0.2
+ind	Q-T2S1	G0	pf	0.2
+ind	Q-T2S1	G0	Rratio	0.2
+ind	Q-T2S1	GT	zeta_V	
+ind	Q-T2S1	GT	zeta_K	0.2
+ind	Q-T2S1	GT	pf	0.2
+ind	Q-T2S1	GT	Rratio	0.2
+ind	Q-T2S1	GF	pf	0.2
+ind	Q-T2S2	G0	zeta_V	
+ind	Q-T2S2	G0	zeta_K	0.2
+ind	Q-T2S2	G0	pf	0.2
+ind	Q-T2S2	G0	Rratio	0.2
+ind	Q-T2S2	GT	zeta_V	
+ind	Q-T2S2	GT	zeta_K	0.2
+ind	Q-T2S2	GT	pf	0.2
+ind	Q-T2S2	GT	Rratio	0.2
+ind	Q-T2S2	GF	pf	0.2
+ind	Q-T2S3	G0	zeta_V	0.2
+ind	Q-T2S3	G0	zeta_K	0.2
+ind	Q-T2S3	G0	pf	0.2
+ind	Q-T2S3	G0	Rratio	0.2
+ind	Q-T2S3	GT	zeta_V	0.2
+ind	Q-T2S3	GT	zeta_K	0.2
+ind	Q-T2S3	GT	pf	0.2
+ind	Q-T2S3	GT	Rratio	0.2
+ind	Q-T2S3	GF	pf	0.2
+ind	Q-T3S1	G0	zeta_V	0.2
+ind	Q-T3S1	G0	zeta_K	0.2
+ind	Q-T3S1	G0	pf	0.2
+ind	Q-T3S1	G0	Rratio	0.2
+ind	Q-T3S1	GT	zeta_V	0.2
+ind	Q-T3S1	GT	zeta_K	0.2
+ind	Q-T3S1	GT	pf	0.2
+ind	Q-T3S1	GT	Rratio	0.2
+ind	Q-T3S1	GF	pf	0.2
+ind	Q-T3S2	G0	zeta_V	0.2
+ind	Q-T3S2	G0	zeta_K	0.2
+ind	Q-T3S2	G0	pf	0.2
+ind	Q-T3S2	G0	Rratio	0.2
+ind	Q-T3S2	GT	zeta_V	0.2
+ind	Q-T3S2	GT	zeta_K	0.2
+ind	Q-T3S2	GT	pf	0.2
+ind	Q-T3S2	GT	Rratio	0.2
+ind	Q-T3S2	GF	pf	0.2
+ind	Q-T3S3	G0	zeta_V	0.2
+ind	Q-T3S3	G0	zeta_K	0.2
+ind	Q-T3S3	G0	pf	0.2
+ind	Q-T3S3	G0	Rratio	0.2
+ind	Q-T3S3	GT	zeta_V	0.2
+ind	Q-T3S3	GT	zeta_K	0.2
+ind	Q-T3S3	GT	pf	0.2
+ind	Q-T3S3	GT	Rratio	0.1
+ind	Q-T3S3	GF	pf	0.2
+cont	Q-T3S1	G0	zeta_V	0.025
+cont	Q-T3S1	G0	zeta_K	0.2
+cont	Q-T3S1	G0	pf	0.2
+cont	Q-T3S1	G0	Rratio	0.2
+cont	Q-T3S1	GT	zeta_V	0.05
+cont	Q-T3S1	GT	zeta_K	0.2
+cont	Q-T3S1	GT	pf	0.2
+cont	Q-T3S1	GT	Rratio	0.2
+ind	Q-T1S1	all	criterion	0.2
+ind	Q-T1S2	all	criterion	0.05
+ind	Q-T1S3	all	criterion	
+ind	Q-T2S1	all	criterion	
+ind	Q-T2S2	all	criterion	
+ind	Q-T2S3	all	criterion	0.2
+ind	Q-T3S1	all	criterion	0.2
+ind	Q-T3S2	all	criterion	0.2
+ind	Q-T3S3	all	criterion	0.1
+cont	Q-T3S1	all	criterion	0.025
+ind	Q-T1	all	tick bin	
+ind	Q-T2	all	tick bin	
+ind	Q-T3	all	tick bin	0.1

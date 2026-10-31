@@ -1,6 +1,7 @@
 """Tests for Phase 3c-4: independent stationary days (panel3c), the whole-stock bootstrap and the widest of
 three intervals (pooled), the pass rule with the Monte Carlo band and the all-ceilings-pass rho* rule
-(phase3c4). No data files are read.
+(phase3c4); and the rules decided 31 Oct 2026 from docs/phase3c4_diagnosis.md: range reach (pooled.range_rule),
+the 90 % evaluability threshold, the P-F slope by coverage only, and the tick-bin rho*. No data files are read.
 
     uv run --group dev --group analysis pytest tools/est/test_3c3.py tools/est/test_3c4.py
 """
@@ -93,9 +94,118 @@ def check_rho_star_all_pass():
     assert np.isnan(C4.rho_star({1 / 80: False, 1 / 40: True}))
 
 
+# ---- the 31 Oct 2026 rules (docs/phase3c4_diagnosis.md) ----------------------------------------------
+
+CEIL20 = [("ceil", 1 / 20)]
+
+
+def raw_ns(Ns, c=None, D=2):
+    """Raw moments with K = c_s T^1.25, V = S = T for stocks with fewest-day lengths Ns (eligible at T under
+    the 1/20 ceiling iff T <= Ns / 20)."""
+    Ns = np.asarray(Ns)
+    c = np.ones(len(Ns)) if c is None else np.asarray(c, float)
+    K = c[:, None, None] * np.broadcast_to(T**1.25, (len(Ns), D, NT))
+    rep = lambda x: np.repeat(x[:, :, None, :], NA, axis=2)  # noqa: E731
+    V = np.broadcast_to(T, (len(Ns), D, NT)).copy()
+    return PO.Raw(rep(V), rep(K), V.copy(), np.full((len(Ns), D, NA), np.nan), np.repeat(Ns[:, None], D, axis=1))
+
+
+def check_reach_at_top():
+    """At least 5 stocks must reach T2 under the ceiling. 5 stocks reach T = 32 (N = 640) and 2 more only T = 4:
+    [4, 32] is defined (zeta_K = 1.25, zeta_V = 1) and [8, 64] is not. 4 stocks reach 32 and 3 more reach 8:
+    [4, 32] is undefined for every estimand, although 7 stocks reach T1 = 4 (and the old estimator, with every
+    horizon populated, is finite there)."""
+    r = raw_ns([640] * 5 + [100] * 2)
+    assert np.array_equal(PO.range_reach(r.Nsd.min(axis=1), CEIL20), [[5], [0], [0]])
+    e = PO.estimate2(r, CEIL20)
+    assert np.allclose(e["zeta_K"][:, 0, 0], 1.25) and np.allclose(e["zeta_V"][:, 0, 0], 1.0)
+    assert np.isfinite(e["pf"][0, 0]) and np.isfinite(e["Rratio"][0, 0])
+    for key in PO.ESTIMANDS2:
+        assert np.all(np.isnan(e[key][..., 1:, 0])), key
+    r = raw_ns([640] * 4 + [200] * 3)
+    e = PO.estimate2(r, CEIL20)
+    for key in PO.ESTIMANDS2:
+        assert np.all(np.isnan(e[key][..., 0, 0])), key
+    assert np.all(np.isfinite(PO.estimate2(r, CEIL20, **PO.LEGACY_RULE)["zeta_K"][:, 0, 0]))
+
+
+def drop_case():
+    """6 stocks, every horizon reached; stock 0 has k~ = -100 at T = 8, so the pooled k~ there is negative."""
+    r = raw_ns([10**6] * 6, c=[1, 3, 3, 3, 3, 3])
+    r.K[0, :, :, 3] = -100 * 8.0
+    return r
+
+
+def check_full_range_only():
+    """zeta_K is never a slope over a shortened range: with T = 8 dropped (non-positive pooled k~) zeta_K and the
+    P-F slope are undefined on [4, 32] and [8, 64] (the old estimator joins the other horizons) and defined on
+    [16, 256]; zeta_V is defined on every range. With no stock at T = 32 (6 stocks reaching T = 16), [4, 32] is
+    undefined although the old estimator fits it from T = 4, 8, 16."""
+    e = PO.estimate2(drop_case(), [("all",)])
+    assert e["dropped_K"][0, 3, 0]
+    assert np.all(np.isnan(e["zeta_K"][:, :2, 0])) and np.all(np.isnan(e["pf"][:2, 0]))
+    assert np.allclose(e["zeta_K"][:, 2, 0], 1.25) and np.isfinite(e["pf"][2, 0])
+    assert np.allclose(e["zeta_V"][:, :, 0], 1.0)
+    assert np.all(np.isfinite(PO.estimate2(drop_case(), [("all",)], **PO.LEGACY_RULE)["zeta_K"][:, 0, 0]))
+    r = raw_ns([400] * 6)
+    assert np.all(np.isnan(PO.estimate2(r, CEIL20)["zeta_K"][:, 0, 0]))
+    assert np.all(np.isfinite(PO.estimate2(r, CEIL20, **PO.LEGACY_RULE)["zeta_K"][:, 0, 0]))
+
+
+def check_saved_panels_rule():
+    """phase3c4 applies the rule to saved (old-estimator) panels from their reach and dropped_K: masking the old
+    estimates reproduces the new estimator exactly."""
+    cases = [(raw_ns([640] * 5 + [100] * 2), CEIL20), (raw_ns([640] * 4 + [200] * 3), CEIL20),
+             (raw_ns([400] * 6), CEIL20), (drop_case(), [("all",)])]
+    for r, sp in cases:
+        old, new = PO.estimate2(r, sp, **PO.LEGACY_RULE), PO.estimate2(r, sp)
+        kept = C4.kept_full_from_dropped(old["dropped_K"], T_grid=PO.T_GRID2, ranges=PO.RANGES2)
+        rule = PO.range_rule(PO.range_reach(r.Nsd.min(axis=1), sp), kept)
+        for key in PO.ESTIMANDS2:
+            assert np.allclose(np.where(rule[key], old[key], np.nan), new[key], equal_nan=True), key
+
+
+def saved(P, defined, est=0.05, half=1.0):
+    """A saved-study dict for pf and Rratio (truth 0): estimate est, interval est -+ half, defined in the first
+    `defined` of P panels."""
+    st, dm = {}, {}
+    for key in ("pf", "Rratio"):
+        e = np.full((P, 2, 5), est, dtype=np.float32)
+        st[f"{key}_est"], st[f"{key}_lo"], st[f"{key}_hi"] = e, e - half, e + half
+        dm[key] = np.arange(P)[:, None, None] < defined
+    return st, {"pf": (np.zeros(2), None), "Rratio": (np.zeros(2), None)}, dm
+
+
+def check_pf_coverage_only():
+    """Bias 0.05 with full coverage: the P-F slope passes (coverage only, its bias still reported), R_{1/2}/R_0
+    fails on bias."""
+    st, tr, dm = saved(40, 40)
+    o = C4.evaluate(st, tr, 0, ("pf", "Rratio"), dm)
+    assert o["pf"]["pass"] and np.isclose(o["pf"]["max_abs_bias"], 0.05)
+    assert not o["Rratio"]["pass"]
+    assert C4.passes(0.05, 0.9, 0.01, coverage_only=True) and not C4.passes(0.05, 0.9, 0.01)
+
+
+def check_evaluable_90():
+    """An element is evaluable only if defined in at least 90 % of panels (36 of 40, not 35); coverage is over
+    the defined panels (all of them cover: 1.0, not 36 / 40)."""
+    st, tr, dm = saved(40, 36, est=0.0)
+    o = C4.evaluate(st, tr, 0, ("pf",), dm)["pf"]
+    assert o["evaluable"] and o["min_cov"] == 1.0 and np.isclose(o["min_defined"], 0.9)
+    st, tr, dm = saved(40, 35, est=0.0)
+    assert not C4.evaluate(st, tr, 0, ("pf",), dm)["pf"]["evaluable"]
+
+
+def check_tick_bin_rho():
+    """A tick bin's rho* is the minimum of its cells' rho*, and none if any cell has none."""
+    assert C4.tick_bin_rho({"a": 1 / 5, "b": 1 / 20, "c": 1 / 10}) == 1 / 20
+    assert np.isnan(C4.tick_bin_rho({"a": 1 / 5, "b": np.nan, "c": 1 / 10}))
+
+
 CHECKS = {f.__name__: f for f in [
     check_days_independent, check_burn_per_day, check_whole_stock_bootstrap, check_widest_of_three,
-    check_pass_rule_mc_band, check_rho_star_all_pass,
+    check_pass_rule_mc_band, check_rho_star_all_pass, check_reach_at_top, check_full_range_only,
+    check_saved_panels_rule, check_pf_coverage_only, check_evaluable_90, check_tick_bin_rho,
 ]}
 
 
@@ -133,6 +243,24 @@ BUGS = [
     Bug("Monte Carlo band ignored", C4, "passes",
         "~(np.asarray(cov) + 2 * np.asarray(mc_se) < COV_MIN)", "~(np.asarray(cov) < COV_MIN)",
         ("check_pass_rule_mc_band",)),
+    Bug("slope computed from fewer horizons than the range", PO, "range_rule",
+        "zK = zV & np.asarray(kept_full) if full_range else zV", "zK = zV",
+        ("check_full_range_only",)),
+    Bug("reach threshold applied to the lowest T instead of T2", PO, "range_reach",
+        "np.array([hi for _, hi in ranges])", "np.array([lo for lo, _ in ranges])",
+        ("check_reach_at_top",)),
+    Bug("P-F slope judged on bias too", C4, "evaluate",
+        "coverage_only=key in COVERAGE_ONLY", "coverage_only=False",
+        ("check_pf_coverage_only",)),
+    Bug("evaluable at 50 % of panels", C4, "evaluate",
+        "ev = dfrac >= MIN_EVAL", "ev = dfrac >= 0.5",
+        ("check_evaluable_90",)),
+    Bug("coverage over all panels instead of the defined ones", C4, "evaluate",
+        "axis=0).ravel() / nd)", "axis=0).ravel() / len(e))",
+        ("check_evaluable_90",)),
+    Bug("tick-bin rho* ignoring a cell with none", C4, "tick_bin_rho",
+        "return float(np.min(v)) if np.all(np.isfinite(v)) else np.nan", "return float(np.nanmin(v))",
+        ("check_tick_bin_rho",)),
 ]
 
 

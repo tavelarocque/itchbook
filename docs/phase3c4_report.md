@@ -1,4 +1,4 @@
-# Phase 3c-4 report: independent stationary days, the widest interval, and why rho* was not run
+# Phase 3c-4 report: independent stationary days, the widest interval, the rules of 31 Oct 2026, and rho*
 
 Labels: **Measurement** = what a computation showed; **Choice** = a decision taken here. Real data were read
 only through `explore.load_explore_runs`, and only signs and sizes (step 1). NASDAQ cells only.
@@ -12,19 +12,29 @@ only through `explore.load_explore_runs`, and only signs and sizes (step 1). NAS
    not a slowly varying flow component.
 2. **Independent stationary days work (Measurement).** Each stock-day is its own series after its own
    discarded burn-in. G0's zeta_K(0) and zeta_V(0) on [8, 64] at Q-T1S3, with N = 300 and 3000, sit within
-   1.3 SE of the 10^6-run truth. zeta_V's SE falls back to 0.005 to 0.011, against 0.05 to 0.11 with
-   3c-3's continuous days.
+   1.3 SE of the 10^6-run truth.
 3. **The burn-in check keeps B = 20,000 (Measurement and Choice).** B = 1000, 2000 and 5000 all fail on
    zeta_K(0), which sits 2.4 to 6.8 SE above the truth on [8, 64]. zeta_V passes at every B.
-4. **The full rho* study was stopped before its 10 % mark (Measurement).** After 28 min it projected about
-   5.5 h on 3 workers, over the 3 h stop rule. I stopped at 9 new chunks, short of the 10 % mark (53
-   chunks), because the projection does not depend on the first chunks alone: it uses the reduced run's
-   measured cost for all 33 combinations (373 min), scaled by the observed speed ratio (0.90). GT accounts
-   for 61 % of the cost. No rho* was determined. The stress test was not run, and the reach table is at the
-   fallback 1/20.
-5. **Which interval is widest (Measurement, partial).** The day-and-stock bootstrap was widest in 95 % to
-   98 % of element-panels, the day jackknife in 2 % to 4 %, and the whole-stock bootstrap essentially
-   never. This comes from the 39 completed chunks, mostly the largest cells.
+4. **The full study ran (Measurement).** 200 panels per cell and generator; top-up to 400 panels for the 18
+   (cell, generator) pairs with an element inside the Monte Carlo band; 100 panels for the continuous-series
+   stress cell. 201 min of wall time on 3 workers, 12.2 worker-hours. Under the pre-registered rules rho* was
+   **none in every cell**.
+5. **Diagnosis (Measurement).** `docs/phase3c4_diagnosis.md` (read-only, saved panels). There were three
+   failure modes. zeta_K was "estimated" at small ceilings from the lower horizons of a range that no stock
+   reached (83 failures, all with 0 stocks at T2). zeta_V had small negative bias and too-narrow coverage at
+   large ceilings. The GF P-F slope failed on bias alone, with coverage 0.85 to 1.00.
+6. **Three rule changes (Choice, 31 Oct 2026, from the diagnosis).** (1) Range reach: an estimate over
+   [T1, T2] is defined for a panel only if at least 5 stocks reach T2 under the ceiling. An element is
+   evaluable only if defined in at least 90 % of panels. (2) The P-F slope is judged by coverage only.
+   (3) rho* is reported per cell and per tick bin. The bias bound (0.02), the coverage bound (0.85), the
+   Monte Carlo band and the panels are unchanged, and no simulation was rerun.
+7. **rho* under the new rules (Measurement).** Per cell: Q-T1S1 1/5, Q-T1S2 1/20, Q-T1S3 none, Q-T2S1 none,
+   Q-T2S2 none, Q-T2S3 1/5, Q-T3S1 1/5, Q-T3S2 1/5, Q-T3S3 1/10. Per tick bin: **Q-T1 none, Q-T2 none,
+   Q-T3 1/10**. Every remaining failure is zeta_V(a) coverage (161) or R_{1/2}/R_0 (14). zeta_K and the P-F
+   slope have none. The continuous-series stress cell gets 1/40, against 1/5 for the same cell on
+   independent days.
+8. **Widest interval (Measurement).** Over defined elements, the day-and-stock bootstrap was widest in 98 to
+   99 % of element-panels and the day jackknife-t in the rest; the whole-stock bootstrap essentially never.
 
 ## 1. Cross-day dependence (exploration stocks, signs and sizes only)
 
@@ -134,135 +144,308 @@ combined) and within 0.01 of the B = 20,000 value; "x" marks a failure.
 - (ii) the delete-one-day jackknife with Student t at G - 1 df;
 - (iii) a whole-stock bootstrap that resamples stocks with all their days, B = 200.
 
-A method undefined for an element is skipped for it.
+A method undefined for an element is skipped for it. Which was widest, over the full study and the elements
+defined under the range-reach rule (section 5):
 
-Which was widest, over the 39 completed chunks (mostly Q-T1S3, Q-T1S2 and the reduced chunks of every
-cell; partial):
+| days | estimator | elements x panels | day_stock_bootstrap | day_jackknife_t | whole_stock_bootstrap |
+|---|---|---|---|---|---|
+| cont | Rratio | 1726 | 1.00 | 0.00 | 0.00 |
+| cont | pf | 1726 | 0.99 | 0.01 | 0.00 |
+| cont | zeta_K | 8630 | 0.99 | 0.01 | 0.00 |
+| cont | zeta_V | 8630 | 0.98 | 0.00 | 0.02 |
+| ind | Rratio | 43553 | 0.99 | 0.01 | 0.00 |
+| ind | pf | 57065 | 0.98 | 0.02 | 0.00 |
+| ind | zeta_K | 217765 | 0.99 | 0.01 | 0.00 |
+| ind | zeta_V | 217765 | 0.98 | 0.02 | 0.00 |
 
-| estimator | elements x panels with an interval | day_stock_bootstrap | day_jackknife_t | whole_stock_bootstrap |
+## 4. The rho* study
+
+**Design (as pre-registered).**
+- Panels: 200 per NASDAQ cell for G0 and GT, and for GF, which is used for the P-F slope only.
+  Confirmation-sized panels with exploration day lengths.
+- Paths: independent stationary days with B = 20,000; R2 clip.
+- Grid: ranges [4, 32] and [8, 64]; ceilings 1/80 to 1/5.
+- Interval: the widest of the three in section 3.
+- Pass rule: |bias| < 0.02, and coverage fails only when coverage + 2 MC SE < 0.85.
+- Top-up: every (cell, generator) with an element inside the Monte Carlo band (coverage within 2 MC SE of
+  0.85) at some ceiling was topped up to 400 panels. That is 18 pairs: G0 and GT of every cell except
+  Q-T1S1, and GF of Q-T3S2 and Q-T3S3.
+- Stress test: the continuous-series path at Q-T3S1, G0 and GT, 100 panels.
+
+**Compute.** The study took 115.7 min and the top-up 85.0 min, on 3 workers. Worker seconds per
+combination (summed over its chunks, including the reduced run's):
+
+| days | cell | gen | panels | worker seconds |
 |---|---|---|---|---|
-| zeta_V | 10360 | 0.96 | 0.04 | 0.00 |
-| zeta_K | 12560 | 0.96 | 0.04 | 0.00 |
-| pf | 3321 | 0.95 | 0.04 | 0.00 |
-| Rratio | 2736 | 0.98 | 0.02 | 0.00 |
+| ind | Q-T1S1 | G0 | 200 | 1146 |
+| ind | Q-T1S1 | GT | 200 | 2535 |
+| ind | Q-T1S1 | GF | 200 | 1050 |
+| ind | Q-T1S2 | G0 | 400 | 3131 |
+| ind | Q-T1S2 | GT | 400 | 6677 |
+| ind | Q-T1S2 | GF | 200 | 1950 |
+| ind | Q-T1S3 | G0 | 400 | 2281 |
+| ind | Q-T1S3 | GT | 400 | 9766 |
+| ind | Q-T1S3 | GF | 200 | 1050 |
+| ind | Q-T2S1 | G0 | 400 | 984 |
+| ind | Q-T2S1 | GT | 400 | 2862 |
+| ind | Q-T2S1 | GF | 200 | 524 |
+| ind | Q-T2S2 | G0 | 400 | 572 |
+| ind | Q-T2S2 | GT | 400 | 1416 |
+| ind | Q-T2S2 | GF | 200 | 298 |
+| ind | Q-T2S3 | G0 | 400 | 182 |
+| ind | Q-T2S3 | GT | 400 | 591 |
+| ind | Q-T2S3 | GF | 200 | 99 |
+| ind | Q-T3S1 | G0 | 400 | 787 |
+| ind | Q-T3S1 | GT | 400 | 2046 |
+| ind | Q-T3S1 | GF | 200 | 380 |
+| ind | Q-T3S2 | G0 | 400 | 314 |
+| ind | Q-T3S2 | GT | 400 | 1024 |
+| ind | Q-T3S2 | GF | 400 | 302 |
+| ind | Q-T3S3 | G0 | 400 | 304 |
+| ind | Q-T3S3 | GT | 400 | 890 |
+| ind | Q-T3S3 | GF | 400 | 291 |
+| cont | Q-T3S1 | G0 | 100 | 119 |
+| cont | Q-T3S1 | GT | 100 | 252 |
 
-## 4. The rho* study (stopped)
+**Under the pre-registered rules (Measurement).** rho* was none in every cell, including the stress cell.
+Below is the status of each ceiling from `docs/phase3c4_diagnosis.md`, with failing elements by family:
+V = zeta_V(a), K = zeta_K(a), PF = P-F slope, R = R_{1/2}/R_0.
 
-Planned as specified: 200 panels per NASDAQ cell for G0 and GT, and GF for the P-F slope only;
-confirmation-sized panels with exploration day lengths; independent stationary days with B = 20,000; R2
-clip; ranges [4, 32] and [8, 64]; ceilings 1/80 to 1/5; the widest-of-three interval.
+| days | cell | 1/80 | 1/40 | 1/20 | 1/10 | 1/5 | ceilings that pass |
+|---|---|---|---|---|---|---|---|
+| ind | Q-T1S1 | fail: PF 1 | fail: PF 1 | fail: PF 1 | fail: PF 1 | fail: PF 1 | none |
+| ind | Q-T1S2 | fail: PF 1 | fail: PF 1 | pass | fail: V 9 | fail: V 14 R 3 | 1/20 |
+| ind | Q-T1S3 | n/e (K 10 PF 3) | fail: V 1 K 10 PF 3 R 3 | fail: V 15 PF 1 R 4 | fail: V 18 PF 1 R 4 | fail: V 20 PF 1 R 4 | none |
+| ind | Q-T2S1 | fail: K 10 | fail: V 12 | fail: V 17 | fail: V 18 | fail: V 18 | none |
+| ind | Q-T2S2 | n/e (K 10 PF 3) | fail: K 10 PF 1 | fail: V 11 PF 1 | fail: V 14 | fail: V 14 | none |
+| ind | Q-T2S3 | n/e | n/e | n/e (K 10 PF 3) | fail: PF 1 | fail: PF 2 | none |
+| ind | Q-T3S1 | fail: K 3 | pass | fail: PF 1 | pass | pass | 1/40, 1/10, 1/5 |
+| ind | Q-T3S2 | n/e (K 10 PF 3) | fail: PF 2 | pass | fail: PF 1 | fail: PF 2 | 1/20 |
+| ind | Q-T3S3 | n/e (K 10 PF 3) | fail: PF 2 | fail: PF 2 | fail: PF 2 R 1 | fail: PF 2 R 1 | none |
+| cont | Q-T3S1 | fail: K 4 | fail: V 2 | fail: V 5 | fail: V 7 | fail: V 7 | none |
 
-The pass rule is |bias| < 0.02, and coverage fails only when coverage + 2 MC SE < 0.85. rho* is the
-largest ceiling such that every evaluable ceiling up to it passes. Bins inside the MC band would have been
-topped up to 400 panels.
+The diagnosis rebuilt each panel's stock counts from its seeds. Day lengths are drawn before any
+simulation, and the rebuild matches the saved estimates' finiteness in every case. It found:
+- **zeta_K.** All 83 failures had a median of 0 stocks at the range's top horizon. The estimate was a slope
+  over the lower horizons only, while the truth is over the whole range.
+- **zeta_V.** 181 failures, all with negative bias (at most 0.029 in size), concentrated at the larger
+  ceilings. Coverage falls as the number of contributing stocks rises.
+- **GF P-F slope.** 36 failures, all on bias alone, with coverage 0.85 to 1.00.
 
-The reduced run (10 panels for each of the 33 combinations; machine swapping at the time) measured the
-cost per combination:
+## 5. The rule changes of 31 Oct 2026
 
-| combination | stock-days per panel | seconds per 10-panel chunk (reduced run) | projected minutes for 20 chunks on 1 worker |
+Decided on 31 Oct 2026 from `docs/phase3c4_diagnosis.md`. The same provenance is recorded in the code
+comments (`pooled.MIN_REACH`, `phase3c4` analysis block, `phase3c4.passes`). Unchanged: the bias bound
+0.02, the coverage bound 0.85, the Monte Carlo band rule, the all-ceilings-pass rule and the panels.
+
+1. **Range reach** (`pooled.range_reach`, `pooled.range_rule`, applied in `pooled.core2`, so Phase 4 uses
+   it by default):
+   - An estimate over [T1, T2] is defined for a panel only if at least `MIN_REACH = 5` of the panel's stocks
+     reach T2 under the mask. Otherwise it is NaN, never a slope over a shortened range.
+   - **Choice:** zeta_K is also undefined when a horizon inside the range was dropped because its pooled k~
+     was not positive. Such a slope is over a shortened range too. Among saved point estimates with the reach
+     met, this happens in 145 of 294,580 (panel, a, range, ceiling) cases.
+   - The P-F slope needs zeta_K defined at every a <= 1, and vk_diff (descriptive) at every a <= 0.5.
+   - **Choice:** R_{1/2}/R_0 over [T1, T2] is measured at the range's middle horizon, but is held to the
+     same reach at T2.
+   - **Choice:** reach is the panel's, the same in every bootstrap and jackknife replicate.
+   - An element is evaluable at a ceiling only if it is defined in at least 90 % of panels (`MIN_EVAL`, was
+     50 %).
+   - **Choice:** bias, coverage and MC SE are taken over the defined panels. A defined estimate with no
+     interval still counts as a miss, as before.
+2. **P-F criterion** (`phase3c4.passes(coverage_only=True)` for `pf`): the P-F slope is judged by coverage
+   only, under G0, GT and GF. Its bias is still computed and reported (`max_abs_bias` in
+   `p3c4_ceilings.tsv`).
+3. **rho* per cell and per tick bin.** A tick bin's rho* is the minimum of its cells' rho*: none if any cell
+   has none. At each failing ceiling the binding estimator is named: the generator and estimator of the worst
+   failing element, scored as in `rho.md`, without the bias term for the P-F slope. A ceiling is skipped, as
+   before, when some criterion estimator has no evaluable element there. No evaluable element fails at any
+   skipped ceiling, so skipping only ceilings where nothing at all is evaluable gives the same rho*.
+
+**Applying the rule to the saved panels.**
+- The chunks were computed with the old estimator. `analyse` applies rule 1 to them through the same
+  `pooled.range_rule`, using two inputs:
+  - each panel's reach, from its day lengths re-drawn from its seed (`phase3c4.panel_ns`, verified in the
+    diagnosis);
+  - the saved point estimate's `dropped_K`.
+- Masking the old point estimates this way reproduces the new estimator exactly
+  (`test_3c4.check_saved_panels_rule`).
+- **Not measured:** the bootstrap and jackknife replicates inside the saved intervals also come from the
+  old estimator. In the new code, a replicate that drops a k~ horizon inside the range is discarded; in the
+  saved ones it was kept as a shortened slope. The raw moments are not saved, so this cannot be redone
+  without simulating again. Point estimates drop such a horizon in 0.05 % of cases.
+- **Reproducibility:** `pooled.LEGACY_RULE` (`min_reach=0, full_range=False`) is pinned in the 3c-2 and
+  3c-3 drivers and in the 3c-4 `study` step. Their committed outputs stay reproducible, and the 3c-4 chunks
+  still resume exactly.
+
+## 6. rho* under the new rules
+
+**Status per ceiling** (same layout as the diagnosis). n/e = some criterion estimator has no evaluable
+element.
+
+| days | cell | 1/80 | 1/40 | 1/20 | 1/10 | 1/5 | ceilings that pass | rho* |
+|---|---|---|---|---|---|---|---|---|
+| ind | Q-T1S1 | n/e | pass | pass | pass | pass | 1/40, 1/20, 1/10, 1/5 | 1/5 |
+| ind | Q-T1S2 | n/e | pass | pass | fail: V 9 | fail: V 14 R 3 | 1/40, 1/20 | 1/20 |
+| ind | Q-T1S3 | n/e | n/e | fail: V 8 R 2 | fail: V 18 R 4 | fail: V 20 R 4 | none | none |
+| ind | Q-T2S1 | n/e | fail: V 6 | fail: V 17 | fail: V 18 | fail: V 18 | none | none |
+| ind | Q-T2S2 | n/e | n/e | fail: V 5 | fail: V 14 | fail: V 14 | none | none |
+| ind | Q-T2S3 | n/e | n/e | n/e | pass | pass | 1/10, 1/5 | 1/5 |
+| ind | Q-T3S1 | n/e | pass | pass | pass | pass | 1/40, 1/20, 1/10, 1/5 | 1/5 |
+| ind | Q-T3S2 | n/e | n/e | n/e | pass | pass | 1/10, 1/5 | 1/5 |
+| ind | Q-T3S3 | n/e | n/e | n/e | pass | fail: R 1 | 1/10 | 1/10 |
+| cont | Q-T3S1 | n/e | pass | fail: V 5 | fail: V 7 | fail: V 7 | 1/40 | 1/40 |
+
+**Per tick bin**, with the cells at the tick bin's rho* and what binds them:
+
+| tick bin | cells' rho* | rho* | binding |
 |---|---|---|---|
-| cont_Q-T3S1_G0 | 400 | 23 | 4 |
-| cont_Q-T3S1_GT | 400 | 64 | 11 |
-| ind_Q-T1S1_G0 | 1288 | 104 | 35 |
-| ind_Q-T1S1_GF | 1288 | 79 | 26 |
-| ind_Q-T1S1_GT | 1288 | 413 | 138 |
-| ind_Q-T1S2_G0 | 1728 | 210 | 70 |
-| ind_Q-T1S2_GF | 1728 | 222 | 74 |
-| ind_Q-T1S2_GT | 1728 | 527 | 176 |
-| ind_Q-T1S3_G0 | 2016 | 105 | 35 |
-| ind_Q-T1S3_GF | 2016 | 108 | 36 |
-| ind_Q-T1S3_GT | 2016 | 477 | 159 |
-| ind_Q-T2S1_G0 | 640 | 74 | 25 |
-| ind_Q-T2S1_GF | 640 | 77 | 26 |
-| ind_Q-T2S1_GT | 640 | 163 | 54 |
-| ind_Q-T2S2_G0 | 400 | 56 | 19 |
-| ind_Q-T2S2_GF | 400 | 56 | 19 |
-| ind_Q-T2S2_GT | 400 | 63 | 21 |
-| ind_Q-T2S3_G0 | 136 | 9 | 3 |
-| ind_Q-T2S3_GF | 136 | 8 | 3 |
-| ind_Q-T2S3_GT | 136 | 57 | 19 |
-| ind_Q-T3S1_G0 | 400 | 46 | 15 |
-| ind_Q-T3S1_GF | 400 | 43 | 14 |
-| ind_Q-T3S1_GT | 400 | 107 | 36 |
-| ind_Q-T3S2_G0 | 216 | 21 | 7 |
-| ind_Q-T3S2_GF | 216 | 30 | 10 |
-| ind_Q-T3S2_GT | 216 | 84 | 28 |
-| ind_Q-T3S3_G0 | 184 | 36 | 12 |
-| ind_Q-T3S3_GF | 184 | 32 | 11 |
-| ind_Q-T3S3_GT | 184 | 110 | 37 |
-| total | | | 1120 worker-minutes, 373 min on 3 workers |
+| Q-T1 | Q-T1S1 1/5, Q-T1S2 1/20, Q-T1S3 none | none | Q-T1S3 fails at 1/20: GT Rratio (Rratio[4,32]) |
+| Q-T2 | Q-T2S1 none, Q-T2S2 none, Q-T2S3 1/5 | none | Q-T2S1 fails at 1/40: G0 zeta_V (zeta_V(0)[4,32]); Q-T2S2 fails at 1/20: G0 zeta_V (zeta_V(0)[4,32]) |
+| Q-T3 | Q-T3S1 1/5, Q-T3S2 1/5, Q-T3S3 1/10 | 1/10 | Q-T3S3 fails at 1/5: GT Rratio (Rratio[8,64]) |
+
+**Per cell**: binding estimator and worst element at each failing ceiling. b = bias, c = coverage +- MC SE,
+def = fraction of panels in which it is defined.
+
+| days | cell | panels (G0 / GT / GF) | 1/80 | 1/40 | 1/20 | 1/10 | 1/5 | rho* |
+|---|---|---|---|---|---|---|---|---|
+| ind | Q-T1S1 | 200 / 200 / 200 | n/e | pass | pass | pass | pass | 1/5 |
+| ind | Q-T1S2 | 400 / 400 / 200 | n/e | pass | pass | fail 9: binding GT zeta_V, worst zeta_V(0)[8,64] b -0.007 c 0.74+-0.02 def 1.00 | fail 17: binding GT zeta_V, worst zeta_V(0)[8,64] b -0.008 c 0.58+-0.02 def 1.00 | 1/20 |
+| ind | Q-T1S3 | 400 / 400 / 200 | n/e | n/e | fail 10: binding GT Rratio, worst Rratio[4,32] b -0.016 c 0.47+-0.02 def 1.00 | fail 22: binding G0 zeta_V, worst zeta_V(0)[4,32] b -0.016 c 0.19+-0.02 def 1.00 | fail 24: binding GT zeta_V, worst zeta_V(0)[8,64] b -0.029 c 0.03+-0.01 def 1.00 | none |
+| ind | Q-T2S1 | 400 / 400 / 200 | n/e | fail 6: binding G0 zeta_V, worst zeta_V(0)[4,32] b -0.013 c 0.75+-0.02 def 1.00 | fail 17: binding G0 zeta_V, worst zeta_V(0.25)[8,64] b -0.024 c 0.61+-0.02 def 1.00 | fail 18: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.026 c 0.39+-0.02 def 1.00 | fail 18: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.028 c 0.25+-0.02 def 1.00 | none |
+| ind | Q-T2S2 | 400 / 400 / 200 | n/e | n/e | fail 5: binding G0 zeta_V, worst zeta_V(0)[4,32] b -0.015 c 0.75+-0.02 def 1.00 | fail 14: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.027 c 0.59+-0.02 def 1.00 | fail 14: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.028 c 0.46+-0.02 def 1.00 | none |
+| ind | Q-T2S3 | 400 / 400 / 200 | n/e | n/e | n/e | pass | pass | 1/5 |
+| ind | Q-T3S1 | 400 / 400 / 200 | n/e | pass | pass | pass | pass | 1/5 |
+| ind | Q-T3S2 | 400 / 400 / 400 | n/e | n/e | n/e | pass | pass | 1/5 |
+| ind | Q-T3S3 | 400 / 400 / 400 | n/e | n/e | n/e | pass | fail 1: binding GT Rratio, worst Rratio[8,64] b -0.021 c 0.94+-0.01 def 1.00 | 1/10 |
+| cont | Q-T3S1 | 100 / 100 | n/e | pass | fail 5: binding G0 zeta_V, worst zeta_V(0.25)[8,64] b -0.016 c 0.70+-0.05 def 1.00 | fail 7: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.018 c 0.64+-0.05 def 1.00 | fail 7: binding G0 zeta_V, worst zeta_V(0)[8,64] b -0.018 c 0.65+-0.05 def 1.00 | 1/40 |
+
+**rho\* of each estimator alone** (generator and estimator):
+
+| days | cell | G0 zeta_V | G0 zeta_K | G0 pf | G0 Rratio | GT zeta_V | GT zeta_K | GT pf | GT Rratio | GF pf |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ind | Q-T1S1 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T1S2 | 1/20 | 1/5 | 1/5 | 1/10 | 1/20 | 1/5 | 1/5 | 1/10 | 1/5 |
+| ind | Q-T1S3 | none | 1/5 | 1/5 | none | none | 1/5 | 1/5 | none | 1/5 |
+| ind | Q-T2S1 | none | 1/5 | 1/5 | 1/5 | none | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T2S2 | none | 1/5 | 1/5 | 1/5 | none | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T2S3 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T3S1 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T3S2 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 |
+| ind | Q-T3S3 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/5 | 1/10 | 1/5 |
+| cont | Q-T3S1 | 1/40 | 1/5 | 1/5 | 1/5 | 1/20 | 1/5 | 1/5 | 1/5 |
+
+**Fraction of panels with at least 5 stocks at T2** (G0; GT and GF differ from G0 by at most 0.09). This is the
+reach part of "defined"; an element is evaluable at 0.90 or more.
+
+| cell | range | 1/80 | 1/40 | 1/20 | 1/10 | 1/5 |
+|---|---|---|---|---|---|---|
+| Q-T1S1 | [4,32] | 0.47 | 0.96 | 0.98 | 1.00 | 1.00 |
+| Q-T1S1 | [8,64] | 0.47 | 0.47 | 0.96 | 0.98 | 1.00 |
+| Q-T1S2 | [4,32] | 0.53 | 1.00 | 1.00 | 1.00 | 1.00 |
+| Q-T1S2 | [8,64] | 0.10 | 0.53 | 1.00 | 1.00 | 1.00 |
+| Q-T1S3 | [4,32] | 0.00 | 0.80 | 1.00 | 1.00 | 1.00 |
+| Q-T1S3 | [8,64] | 0.00 | 0.00 | 0.80 | 1.00 | 1.00 |
+| Q-T2S1 | [4,32] | 0.83 | 1.00 | 1.00 | 1.00 | 1.00 |
+| Q-T2S1 | [8,64] | 0.00 | 0.83 | 1.00 | 1.00 | 1.00 |
+| Q-T2S2 | [4,32] | 0.00 | 0.49 | 1.00 | 1.00 | 1.00 |
+| Q-T2S2 | [8,64] | 0.00 | 0.00 | 0.49 | 1.00 | 1.00 |
+| Q-T2S3 | [4,32] | 0.00 | 0.00 | 0.00 | 1.00 | 1.00 |
+| Q-T2S3 | [8,64] | 0.00 | 0.00 | 0.00 | 0.00 | 1.00 |
+| Q-T3S1 | [4,32] | 0.81 | 1.00 | 1.00 | 1.00 | 1.00 |
+| Q-T3S1 | [8,64] | 0.00 | 0.81 | 1.00 | 1.00 | 1.00 |
+| Q-T3S2 | [4,32] | 0.00 | 0.10 | 0.55 | 1.00 | 1.00 |
+| Q-T3S2 | [8,64] | 0.00 | 0.00 | 0.10 | 0.55 | 1.00 |
+| Q-T3S3 | [4,32] | 0.00 | 0.05 | 0.88 | 1.00 | 1.00 |
+| Q-T3S3 | [8,64] | 0.00 | 0.00 | 0.05 | 0.88 | 1.00 |
 
 **Measurement.**
-- The full run's first 28 min confirmed these costs: Q-T1S3 GT chunks took 315 to 509 s, against 477 s in
-  the reduced run, a speed ratio of 0.90.
-- The projection was **about 5.5 h** on 3 workers before top-ups, so the run was stopped under the 3 h
-  rule.
-- GT costs 3 times G0 (its 12 size bins need 12 forward FFTs per series). Every stock-day carries its own
-  20,000-run burn-in, so a panel generates 20,000 x stock-days extra runs: about 40 million for Q-T1S3.
-- In the pool a Q-T1S3 GT panel took about 48 s, against 15 s alone in one process: 3 parallel FFT-heavy
-  workers on a fanless 8 GB machine that was swapping (11.7 of 12.3 GB swap used at the stop).
+- Independent-days cells: 1,175 evaluable (element, ceiling) pairs, 175 failing: 161 zeta_V(a) and 14
+  R_{1/2}/R_0. zeta_K(a) has 470 evaluable pairs and no failure. The P-F slope has 141 evaluable pairs
+  and no coverage failure. Its largest |bias| is 0.069 (GF, Q-T3S3, 1/5, coverage 0.98), reported but no
+  longer binding.
+- Every evaluable element has a defined fraction of at least 0.905.
+- 1/80 is not evaluable in any cell.
+- **Q-T1 and Q-T2 have no rho\*:**
+  - Q-T1S3's first evaluable ceiling is 1/20, where zeta_V and R_{1/2}/R_0 fail on coverage (worst: GT
+    R_{1/2}/R_0 [4, 32], bias -0.016, coverage 0.47).
+  - Q-T2S1 fails at 1/40 and Q-T2S2 at 1/20, both on zeta_V(a) coverage under G0.
+- **Q-T3's rho\* is 1/10,** bound by Q-T3S3, where GT R_{1/2}/R_0 [8, 64] fails on bias (-0.021,
+  coverage 0.94) at 1/5.
+- **Stress cell:** the continuous-series path gives 1/40, against 1/5 on independent days. zeta_V(a) on
+  [8, 64] fails from 1/20 on, with coverage 0.64 to 0.76.
 
-All 39 completed chunks are kept under `$ITCH_DATA/phase3c4/study/` and resume exactly
-(`phase3c4.py study`). **The continuous-series stress test (Q-T3S1, G0 and GT, 100 panels) was not run.**
-Its reduced chunks exist.
-
-## 5. Reach (no rho* determined: fallback 1/20)
+## 7. Reach at each tick bin's rho*
 
 Confirmation stocks (N_min from `data/universe.tsv`) with N_min >= T2 / rho, per cell and pooled per tick
-bin. In this run every cell uses 1/20, so the "each at its cell's rho" in the pooled rows means 1/20 here.
+bin, at the tick bin's rho*. Q-T1 and Q-T2 have no rho*. Their rows use the earlier 1/20 fallback, marked
+"none found", and are not a reach at rho*.
 
 | group | rho used | confirm stocks | [4,32] | [8,64] |
 |---|---|---|---|---|
 | Q-T1S1 | 1/20 (none found) | 161 | 34 | 22 |
 | Q-T1S2 | 1/20 (none found) | 216 | 52 | 23 |
 | Q-T1S3 | 1/20 (none found) | 252 | 26 | 5 |
+| **Q-T1** (pooled) | 1/20 (none found) | 629 | 112 | 50 |
 | Q-T2S1 | 1/20 (none found) | 80 | 32 | 17 |
 | Q-T2S2 | 1/20 (none found) | 50 | 12 | 3 |
 | Q-T2S3 | 1/20 (none found) | 17 | 1 | 0 |
-| Q-T3S1 | 1/20 (none found) | 50 | 31 | 21 |
-| Q-T3S2 | 1/20 (none found) | 27 | 12 | 6 |
-| Q-T3S3 | 1/20 (none found) | 23 | 5 | 1 |
-| Q-T1 (S1+S2+S3, each at its cell's rho) | per cell | 629 | 112 | 50 |
-| Q-T2 (S1+S2+S3, each at its cell's rho) | per cell | 147 | 45 | 20 |
-| Q-T3 (S1+S2+S3, each at its cell's rho) | per cell | 100 | 48 | 28 |
+| **Q-T2** (pooled) | 1/20 (none found) | 147 | 45 | 20 |
+| Q-T3S1 | 1/10 | 50 | 39 | 31 |
+| Q-T3S2 | 1/10 | 27 | 23 | 12 |
+| Q-T3S3 | 1/10 | 23 | 13 | 5 |
+| **Q-T3** (pooled) | 1/10 | 100 | 75 | 48 |
 
-## 6. Tests and planted bugs
+## 8. Tests and planted bugs
 
-`tools/est/test_3c4.py` has 6 checks and 5 planted bugs, all caught, each by its intended assertion (each
-mutant rerun outside pytest). Full suite: 332 passed, 28 skipped.
+`tools/est/test_3c4.py` has 12 checks and 11 planted bugs. 6 checks and 6 bugs are new for the rule
+changes. Every bug is caught by its intended assertion; each new mutant was also rerun outside pytest. Full
+suite: 344 passed, 28 skipped.
 
-| planted bug | mutated function | caught by |
+| planted bug (new) | mutated function | caught by |
 |---|---|---|
-| days of a stock drawn from one series on the new path | `panel3c.make_panel` | check_days_independent (day-to-day correlation of mean signs 0.97 instead of about 0) |
-| burn-in shared across a stock's days | `panel3c.independent_series` | check_burn_per_day |
-| whole-stock bootstrap resampling days instead of stocks | `pooled.whole_stock_weights` | check_whole_stock_bootstrap |
-| rho* taken as the largest passing ceiling | `phase3c4.rho_star` | check_rho_star_all_pass |
-| Monte Carlo band ignored | `phase3c4.passes` | check_pass_rule_mc_band |
+| slope computed from fewer horizons than the range | `pooled.range_rule` | check_full_range_only (zeta_K on [4, 32] finite with T = 8 dropped) |
+| reach threshold applied to the lowest T instead of T2 | `pooled.range_reach` | check_reach_at_top (7 stocks counted at T = 4 where 5 reach T2 = 32) |
+| P-F slope judged on bias too | `phase3c4.evaluate` | check_pf_coverage_only |
+| evaluable at 50 % of panels | `phase3c4.evaluate` | check_evaluable_90 |
+| coverage over all panels instead of the defined ones | `phase3c4.evaluate` | check_evaluable_90 |
+| tick-bin rho* ignoring a cell with none | `phase3c4.tick_bin_rho` | check_tick_bin_rho |
 
-Two earlier tests needed changes:
-- The 3c-3 test of continuous days now asks for `continuous=True` explicitly.
-- The 3c planted bug "batched kernel off by one lag" now mutates `panel3c.kernel_spectrum`, where the
-  kernel now lives.
+New checks:
+- `check_reach_at_top`: exactly 5 stocks at T2 is defined, 4 is not, whatever the count at T1.
+- `check_full_range_only`: a dropped horizon, and a range whose top no stock reaches, are both undefined;
+  the old estimator gave a finite shortened slope for both.
+- `check_saved_panels_rule`: masking old estimates by reach and `dropped_K` equals the new estimator. This
+  check caught a stacking-axis bug in `phase3c4.kept_full_from_dropped` during development. The `analyse`
+  run before the fix had used the earlier inline code, and its outputs are byte-identical to the final run.
+- `check_pf_coverage_only`, `check_evaluable_90`, `check_tick_bin_rho`.
 
-## 7. Wall time and peak memory
+Three older tests needed `**PO.LEGACY_RULE` because they build 2-stock panels, below the reach of 5:
+- `test_3c3.check_v_mean_of_logs`
+- `test_pooled2.check_log_slope_equals_K_over_T`
+- `test_pooled2.check_nonpositive_pooled_drops_T`, which tests the old horizon-dropping mechanism; its
+  docstring now says so.
 
-| job | wall | peak RAM | notes |
-|---|---|---|---|
-| cross-day dependence (step 1) | 63 s | | guard reads of 8 days, signs and sizes only |
-| stationarity check on the new path | 8 s | 0.22 GB | |
-| burn-in check, two passes (the second with N = 3000 doubled for SE <= 0.01) | 50 s + 53 s | | 3 workers |
-| reduced study (33 combinations x 10 panels) | 20.4 min | | machine swapping |
-| full study, stopped | 28 min | 0.91 GB all processes | 3 workers, 10 new chunks |
-| test suite | 55 s | | |
+## 9. Wall time
 
-Total compute in this phase is about 55 min. The study stopped under the time rule; nothing ran over.
+| job | wall | notes |
+|---|---|---|
+| cross-day dependence (step 1) | 63 s | guard reads of 8 days, signs and sizes only |
+| stationarity check on the new path | 8 s | |
+| burn-in check, two passes | 50 s + 53 s | 3 workers |
+| reduced study (33 combinations x 10 panels) | 20.4 min | machine swapping |
+| full study | 115.7 min | 3 workers |
+| top-up to 400 panels (18 pairs) | 85.0 min | 3 workers |
+| diagnosis (saved panels) | about 2 min | |
+| `analyse` under the new rules | 124 s | includes re-drawing day lengths for every panel |
+| test suite | 67 s | |
 
-## 8. To finish the study (a decision, not taken here)
+Peak memory was not recorded for the full study and top-up. The stopped run's peak was 0.91 GB over all
+processes.
 
-- Run the remaining chunks unattended on a quiet machine (about 5.5 h, or less without swapping). They
-  resume from the checkpoints.
-- Or cut GT's cost: fewer size bins, or a Chebyshev interpolation of its kernel in beta as in
-  `mbmodel.impact_trade_clock` (approximate, about 5 nodes instead of 12 FFTs).
-- Or lower the panel count for GT only.
+## 10. Open (decisions not taken here)
 
-A burn-in below 20,000 is ruled out by the check above.
+- Q-T1 and Q-T2 have no rho* under the new rules. What binds them is coverage of zeta_V(a), whose bias is
+  small (-0.004 to -0.029 in the failing elements) while its intervals shrink as more stocks contribute, and of R_{1/2}/R_0 in
+  Q-T1S3.
+- The effect of the old-rule replicates inside the saved intervals (section 5) is not measured.
