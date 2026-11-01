@@ -32,7 +32,8 @@ concatenated run arrays (eps, q, lm, ok) and per stock-day (start, length).
      difference vk_diff = slope zeta_V - 2 slope zeta_K (defined when the zeta_K
      slope is 0, where the ratio is not).
    Masks: ("all",) every stock; ("ceil", rho) stock s at T iff T <= rho N_s,
-   N_s = its fewest runs on any study day; ("band", lo, hi) iff lo < T / N_s <= hi.
+   N_s = its fewest runs on any study day; ("band", lo, hi) iff lo < T / N_s <= hi; ("cellceil", rho_s)
+   with one ceiling per stock (Phase 3d tick-bin pools: each stock at its own cell's ceiling).
    An increment's eligibility is decided at its upper horizon T_j+1.
    Range reach (core2, from 31 Oct 2026; see MIN_REACH): an estimate over [T1, T2] is defined only if at
    least 5 stocks are eligible at T2, and zeta_K only if every horizon of the range is kept.
@@ -165,6 +166,8 @@ def masks(Ns: np.ndarray, T: np.ndarray, specs) -> np.ndarray:
             out.append(r <= sp[1])
         elif sp[0] == "band":
             out.append((r > sp[1]) & (r <= sp[2]))
+        elif sp[0] == "cellceil":  # Phase 3d: each stock its own ceiling, sp[1] = rho per stock (S,)
+            out.append(r <= np.asarray(sp[1], dtype=float)[:, None])
         else:
             raise ValueError(f"unknown mask {sp!r}")
     return np.stack(out, axis=-1)

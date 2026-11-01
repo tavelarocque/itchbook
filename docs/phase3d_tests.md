@@ -1,0 +1,304 @@
+# Phase 3d-1: the four primary tests as frozen functions
+
+Labels: **Measurement** = what a computation showed; **Choice** = a decision taken here. No real data were read:
+no test ran on exploration or confirmation data, and there is no simulation study in this step.
+
+Code: `tools/est/prereg3d.py` (every pre-registered constant), `tools/est/primary3d.py` (the tests, Holm, the
+pooling unit, the range rule), `tools/est/test_3d1.py` (known answers and planted bugs). One addition to
+`pooled.py`: the mask spec `("cellceil", rho_per_stock)`.
+
+## 1. P-R: the decision of 31 Oct 2026 and why
+
+### 1.1 The decision
+
+The pre-registered P-R was a one-sided test that a*(T) drifts with T in the direction implied by Maitrier and
+Bouchaud Eq. 74. The derivation in section 1.3 shows Eq. 74 does not fix that direction, so the step stopped. On
+31 Oct 2026, after the derivation and before any data, P-R was replaced:
+
+- **P-R primary (equivalence).** a*(T) lies within 1/2 +- 0.15 at BOTH T1 and T2 of the fitting range used. TOST
+  at each end, intersection-union, so the p-value is the larger of the two ends' TOST p-values.
+- **Secondary, not in Holm:** R_{1/2}/R_0 against e^{sigma_l^2/8}; psi-hat reported beside a*(T) (Proposition
+  1: the diagonal peak sits at psi); a two-sided estimate of da*/dlog T with its interval, reported only.
+
+This is the paper's stock regime, in which the diagonal term dominates. Source: Maitrier and Bouchaud, arXiv:2506.07711v6
+[q-fin.TR], 4 Mar 2026 (PDF SHA-256 ad046872a8a20cf212487ca2b4eba97d24a9c7d80aa05d5e5a5518f421256831),
+section 7.3, page 24, quoted exactly:
+
+> "Finally, for point 3., Fig. 9 shows that the correlation between price returns and generalized order
+> imbalance is non-monotonic as a function of a, reaching a maximum for a⋆ ≈ 0.5 for LLOY, TSCO and SPMINI, and
+> a⋆ ≈ 1 for EUROSTOXX."
+
+> "Such a non-monotonic behaviour is predicted by our theoretical analysis. Interestingly, when the diagonal
+> contribution to Ra dominates, we expect that the maximum correlation is reached precisely for a⋆ = 1/2, with a
+> peak amplitude that decreases with T, see Eq. (71). The data for the two stocks is therefore compatible with
+> the fact that in the small a regime, Ra (T)d. is a decreasing function of T."
+
+(Page 24 of the PDF. The quote was checked against the rendered page. SPMINI is a future; the paper groups it
+with the two stocks at a⋆ about 0.5.)
+
+### 1.2 Eq. 74
+
+Section 6.3, page 21, for a < a_c:
+
+    R_a(T) = exp(-s a^2 / 2) * ( A(T) exp(s a / 2) + B(T) exp(lambda s a tau) ),
+
+with s = sigma_l^2, tau = log T, and A and B functions of T that the paper does not specify. The equation was
+checked against the rendered page.
+
+### 1.3 Why the one-sided drift test was dropped (the derivation, line by line)
+
+**1. Completing the square.**
+
+    R_a(T) = A(T) exp(s/8) exp(-s (a - 1/2)^2 / 2) + B(T) exp(s (lambda tau)^2 / 2) exp(-s (a - lambda tau)^2 / 2).
+
+Each term is a Gaussian bump in a with width 1/sqrt(s). The A bump is centred at 1/2 for every T. The B bump is
+centred at lambda log T.
+
+**2. The log derivative.**
+
+    d log R_a / da = s ( -a + (1 - w)/2 + w lambda tau ),
+    w = B exp(lambda s a tau) / ( A exp(s a / 2) + B exp(lambda s a tau) ).
+
+The log derivative of a sum is the share-weighted average of each term's log derivative. w is the B term's
+share.
+
+**3. The peak.**
+
+    a*(T) = (1 - w*) / 2 + w* lambda tau.
+
+The peak is a weighted average of the two centres.
+
+**4. The pure regimes.**
+- w* = 0, the diagonal term dominant: a* = 1/2 at every T, so there is no drift. This is the regime of section
+  7.3, and the regime the new P-R tests.
+- w* = 1: a* = lambda log T, which increases with T.
+
+**5. The mixed regime.** With G = -a + 1/2 + w (lambda tau - 1/2), w = logistic(u),
+u = log(B/A) + s a (lambda tau - 1/2), and g = d log(B/A) / d tau:
+
+    da*/dtau = [ w lambda + (lambda tau - 1/2) w (1 - w) (g + s lambda a*) ] / [ 1 - s w (1 - w) (lambda tau - 1/2)^2 ].
+
+This is implicit differentiation of G = 0. The denominator is positive at a maximum, because
+d^2 log R / da^2 = s dG/da < 0 there.
+
+**6. The sign is open.** The first term is positive. The second has the sign of (lambda tau - 1/2)(g + s lambda a*):
+- g is not given by Eq. 74;
+- with the paper's Fig. 9 lambda = 0.1, lambda log T is 0.14 to 0.42 on T = 4 to 64, below 1/2.
+
+So a B/A ratio that grows with T pulls a* down while lambda log T pushes it up.
+
+**7. Sufficient conditions for a sign, none implied by Eq. 74.** Any one of these gives a positive drift:
+- g = 0 and s < 4;
+- lambda log T >= 1/2 and g >= 0;
+- w* = 1.
+
+With w* = 0 the drift is zero.
+
+**8. Numerical check (Measurement).** s = 0.81, lambda = 0.1, A = 1. Each cell is the exact argmax of Eq. 74 /
+the quadratic vertex on a in {0, 0.25, 0.5, 0.75, 1}.
+
+| B/A | T = 4 | 8 | 16 | 32 | 64 | direction |
+|---|---|---|---|---|---|---|
+| 0 (A only) | 0.500 / 0.500 | 0.500 / 0.500 | 0.500 / 0.500 | 0.500 / 0.500 | 0.500 / 0.500 | none |
+| infinite (B only) | 0.139 / 0.109 | 0.208 / 0.196 | 0.277 / 0.275 | 0.347 / 0.348 | 0.416 / 0.418 | up |
+| 1 | 0.328 / 0.329 | 0.360 / 0.362 | 0.393 / 0.395 | 0.425 / 0.427 | 0.459 / 0.460 | up |
+| 0.3 T^0.26 | 0.400 / 0.402 | 0.407 / 0.409 | 0.419 / 0.421 | 0.437 / 0.438 | 0.461 / 0.462 | up |
+| 0.05 T | 0.446 / 0.447 | 0.422 / 0.424 | 0.405 / 0.407 | 0.407 / 0.410 | 0.436 / 0.438 | down, then up |
+| 20 / T | 0.202 / 0.189 | 0.296 / 0.295 | 0.380 / 0.382 | 0.443 / 0.445 | 0.481 / 0.481 | up |
+
+The exponent 0.26 comes from the paper's defaults (mu_m = 3/2, lambda s = 1/8, gamma_x + beta_hat(0) = 0.8),
+through the T powers of Eqs. 71 and 72.
+
+## 2. API (`primary3d`)
+
+**Input.**
+- `Flow(eps, q, lm, ok, ts, starts, lengths, n_days)`: stocks' stock-days, stock-major, with RAW sizes q. The
+  R2 clip is applied when a unit is built.
+- `ts` is in ns since midnight ET, for S2's 30-minute bins.
+
+**Units.**
+- `tick_bin_unit(flows, "Q-T1")` (primary): pools the tick bin's confirmatory cells. Descriptive cells in
+  `flows` are dropped and logged in `Unit.excluded_cells`.
+- `cell_unit(flows, cell)` (secondary).
+- `make_unit` raises for any non-confirmatory cell.
+- Each stock carries its cell's ceiling from `prereg3d.CONFIRMATORY` (mask `("cellceil", rho)`).
+
+**Running.**
+- `run_tick_bin(flows, tb, pm, rng, n_boot=200, n_sur=4)` and `run_cell(...)`, both through `run_unit`.
+- They return `{"tests": {name: TestResult}, "holm": {...}, "descriptive": {"P-K": ...}, "unit": {...}}`.
+
+**`TestResult`.**
+- `p`, `alternative`, and `conditions` (every sub-condition as a bool).
+- `statistic`: the range used, with estimates and widest intervals.
+- `range_used`, `range_rule` (primary, fallback or not evaluable), `reach` (stocks at T2 of each range) and
+  `stocks_used` (indices at T2 of the range used).
+- `by_range`: both ranges, reported. `secondary`: never in Holm.
+- `rejected` (Holm) and `passed` = rejected AND every condition.
+
+**Pure decision layers.** These take replicates (`Reps(est, ds, jk, ws)`): `decide_pv(errors, s1, s2)`,
+`decide_pr(ends)`, `decide_pm(slope, top)`, `decide_pf(pf)`.
+
+**Other functions.**
+- `holm(pvals)` takes exactly {P-V, P-R, P-M, P-F} and raises otherwise. `apply_holm(tests)` applies it.
+- `select_range(Ns, rho)`: the reach rule. Its only inputs are day lengths and ceilings.
+- `PMParams(n_bins, l_max, L, min_runs_per_bin)`: validated against prereg3d (bins 3, 4 or 5; l_max 16 or 32;
+  L >= 8 l_max). There is no default; Phase 3d-2 chooses.
+- Building blocks: `m3_V`, `logv_rel`, `fit_m1`, `fit_m2`, `model_errors`, `pm_moments`, `pm_solve`,
+  `fit_beta`, `psi_moments`, `psi_hat`, `vertex`, `interval`, `p_value`.
+
+## 3. The tests as implemented
+
+All four use the T grid 1..64, the a grid {0, 0.25, 0.5, 0.75, 1}, R2-clipped sizes, the tilde path of
+`pooled.core2` with the reach rule, and the per-stock ceilings.
+
+**Inference.** One set of draws per unit, shared by every test, in the order of `pooled.intervals3`:
+- the day-and-stock bootstrap;
+- the whole-stock bootstrap;
+- the delete-one-day jackknife with Student t at D - 1 df.
+
+The interval is the widest of the three at 0.90; `check_interval_matches_intervals3` checks equality with
+`pooled.intervals3`. **Choice:** the p-value is the largest of the three methods' p-values, the counterpart of
+the widest interval. A percentile bootstrap p-value is the share of replicates on the null side, and twice the
+smaller share when two-sided.
+
+**Range.** The range used is chosen by `select_range`: [8, 64] if at least 5 stocks reach 64, else [4, 32] if
+at least 5 reach 32, else not evaluable (p = 1, every condition false).
+- **Choice:** a statistic undefined on the chosen range (for example zeta_K dropping a horizon) gives p = 1. It
+  never triggers a switch to the other range.
+
+**P-V.**
+- **(i)** Leave-one-day-out over the D days. For held-out day d:
+  - M1 and M2 are fitted to the pooled curve of the other days;
+  - M3 is built from day d's own stock-days;
+  - each model's prediction of day d's pooled curve is scored.
+  - **Choice:** the curve is log v_a(T) - log v_a(T1) over the range's horizons, so there are no free
+    intercepts. The models predict (zeta_V(a) - 1)(log T - log T1).
+  - **Choice:** the weights are w_T = 1/T, about the inverse variance of log v.
+  - M1: zeta_V constant in a.
+  - M2: zeta_V(a) = 3 - mu_m - 2 a lambda sigma_l^2 below a_c, 1 above. **Choice:** lambda sigma_l^2 >= 0; a_c
+    leaves 2 to 5 grid points below it; ties go to the smaller a_c.
+  - M3: V_a(T) = T E[q^2a] + 2 E[q^a]^2 sum_{l<T} (T - l) C(l), from the stock-day's uncentred sign ACF and
+    size moments, pooled exactly like the real V. `check_m3_is_shuffle_expectation` checks it against the mean
+    over 300 shuffles: within 3 %.
+  - **Choice:** a day with any undefined value is skipped for every model.
+  - (i) holds when M2's total error is below both M1's and M3's.
+- **(ii)** The slope in a, over the grid points below M2's a_c, of zeta_V(a) real minus zeta_V(a) surrogate.
+  - **Choice:** a_c is from M2 fitted on all days and held fixed across replicates.
+  - **Choice:** the surrogate zeta_V is the mean over N_SUR = 4 draws. S2's block length comes from
+    `surrogates.choose_L` per stock-day.
+  - The test is one-sided (less), for S1 and S2 separately; each needs its upper bound below 0.
+- **p** = max(p_S1, p_S2) when (i) holds, else 1. **Choice:** (i) is a gate without a p-value.
+
+**P-R.**
+- a*(T) is the vertex of the least-squares quadratic in a of R_a(T), pooled through Fisher z (`pooled.core2`),
+  NaN unless concave. **Choice:** it is NaN below the range's reach.
+- TOST at T1 and at T2: H0 a* <= 0.35 and H0 a* >= 0.65. p_end is the larger of the two, and
+  p = max(p_end(T1), p_end(T2)).
+- Conditions: the 0.90 interval (the TOST interval) lies inside (0.35, 0.65) at T1 and at T2.
+- Secondary:
+  - R_{1/2}/R_0 at the range's middle horizon, against e^{sigma_l^2/8}, as a difference with interval and
+    two-sided p. **Choice:** sigma_l^2 is each stock-day's variance of log clipped size, equal weight per stock.
+  - psi-hat. **Choice:** over deciles of size within each stock-day, the immediate signed response
+    eps_n (lm_{n+1} - lm_n) is regressed per stock on c0 + c1 mean (q/gm)^psi. psi is common to all stocks and
+    minimises the sum of 1 - R^2; the grid is 0 to 1.5 in steps of 0.01. It recovers psi = 0.5 on G0.
+  - da*/dlog T: the OLS slope over the range's horizons, two-sided p.
+
+**P-M.**
+- **Choice:** size bins are each stock-day's own quantiles, ties to the lower bin.
+- x_b(n) = eps_n 1[bin b]. r_n = lm_{n+1} - lm_n over valid steps, divided by the stock-day's rms (**Choice**).
+- Moments: Cp[b, b', k] = mean x_b(n) x_b'(n + k) and Sr[b, l] = mean x_b(n) r_{n+l}, for k, l < L.
+- They are pooled equal-weight per stock (days first), then solved for the size-binned propagator
+  S_b(l) = sum_b' sum_{j<L} K_b'(j) C_bb'(l - j) (block Toeplitz). G_b(l) = sum_{j<l} K_b(j).
+- beta_b comes from `propagator.fit_power`'s model G0 l0^beta / (l0 + l)^beta on lags [1, l_max].
+  **Choice:** the beta grid is -1 to 1.5, because the top-bin condition needs beta < 0 to be reachable.
+- The slope is OLS of beta_b on x_b, the bin's mean log size relative to the stock-day's.
+- **Choice:** a stock-day is used if:
+  - every bin holds >= min_runs_per_bin runs;
+  - N > L + 1;
+  - its stock reaches L under its cell's ceiling (L <= rho N_s).
+
+  P-M needs at least 5 stocks.
+- p = max(p_slope, p_top), both one-sided (less). Conditions: the slope's upper bound is below 0, and the top
+  bin's upper bound is below 0.
+
+**P-F.**
+- The OLS slope of zeta_K(a) on a over [0, 1] (`pooled.core2` "pf"). Two-sided against 0; the condition is that
+  the interval excludes 0.
+- zeta_K(a) levels are reported with intervals, never tested.
+
+**Numerical zero (Choice).** Every slope statistic within 1e-12 of 0 is set to 0. An exactly flat zeta_K gave
++-3e-17 from the OLS weights (Measurement), and a consistent sign across replicates would then reject flatness on
+rounding alone.
+
+**Holm.**
+- Exactly {P-V, P-R, P-M, P-F}; any other family raises, so P-K and P-C cannot enter. NaN counts as 1.
+- Ascending p; the i-th smallest is compared with 0.05/(4 - i); stop at the first failure. Adjusted p-values are
+  reported.
+- **Choice:** one Holm family per tick bin, since the tick bin is the pooling unit. Per-cell runs report their
+  own Holm as secondary.
+
+**Descriptive.** P-K is reported as the slope difference vk_diff with its interval. P-C has no definition in
+the repo; see section 6.
+
+## 4. Known answers (Measurement, `test_3d1.py`)
+
+| input | result |
+|---|---|
+| Eq. 74, B = 0, A(T) = 0.3 T^-0.1, replicate noise 0.002 | a* = 0.500 at both ends; P-R p = 0.0022 (T1), 0.0003 (T2); passes |
+| R peaked at a* = 0.25 at both ends | P-R p = 1.0; both conditions fail |
+| a* = 0.5 at one end, 0.2 at the other (either end) | p > 0.5; one condition fails |
+| G0 flow, sizes independent of signs (10 stocks x 6 days x 1500 runs) | (ii) p_S1 = 1.0, p_S2 = 0.98; slopes +0.022, +0.016; M3 (the true model) beats M2; P-V fails |
+| big sizes on random-sign runs, small on persistent ones | (ii) slopes -0.65 (S1), -0.64 (S2), p 4e-6; M2 beats M1 and M3 |
+| k-tilde with slope in a exactly 0 | P-F p = 1 on both ranges, interval contains 0 |
+| zeta_K rising or falling in a by 0.05 | P-F p < 0.01 both ways |
+| size-binned kernels beta = (0.6, 0.2, -0.3) | beta-hat (0.62, 0.20, -0.30); p_slope 9e-5, p_top 2e-5; both conditions hold |
+| G0 flow, psi = 0.5 | psi-hat 0.50 [0.47, 0.54] |
+
+## 5. Tests and planted bugs
+
+`tools/est/test_3d1.py` has 27 checks and 19 planted bugs. Each mutant was also run outside pytest:
+- 18 fail their check on an assertion;
+- "descriptive cells pooled into the tick bin" is caught one layer earlier, by `make_unit`'s guard (ValueError:
+  "Q-T1S3 is not a confirmatory cell") raised inside the check.
+
+| planted bug | mutated function | caught by |
+|---|---|---|
+| Holm sorted descending | `holm` | check_holm_order |
+| Holm as plain Bonferroni | `holm` | check_holm_order (P-F at 0.015: Holm 0.0167 rejects, Bonferroni 0.0125 does not) |
+| Holm not stopping at the first failure | `holm` | check_holm_order (P-V at 0.04 must stay unrejected) |
+| Holm accepting a family other than the four | `holm` | check_holm_exactly_four (P-K or P-C added, P-M missing) |
+| fallback range picked by the smaller p | `_assemble` | check_fallback_never_by_result |
+| [8, 64] used whatever its reach | `select_range` | check_fallback_by_reach |
+| descriptive cells pooled into the tick bin | `tick_bin_unit` | check_descriptive_excluded (make_unit's guard) |
+| one ceiling for every stock of the tick bin | `make_unit` | check_cell_ceilings |
+| R2 clip skipped | `make_unit` | check_r2_clip |
+| p-value from the least conservative method | `p_value` | check_p_value_conservative |
+| P-F tested one-sided | `decide_pf` | check_pf_two_sided |
+| P-F slope not snapped at numerical zero | `snap` | check_pf_flat_not_rejected |
+| P-R one-sided on drift instead of the equivalence | `decide_pr` | check_pr_eq74_known_answer |
+| P-R at T2 only | `decide_pr` | check_pr_uses_both_ends |
+| M3 missing the factor 2 of the sign ACF term | `m3_V` | check_m3_is_shuffle_expectation |
+| P-V (ii) on S1 only | `decide_pv` | check_pv_both_surrogates |
+| P-V without the model-comparison gate | `decide_pv` | check_pv_gate |
+| P-M on the slope condition only | `decide_pm` | check_pm_both_required |
+| P-M top bin taken as the smallest sizes | `pm_stats` | check_pm_recovers_beta |
+
+Other checks: config table, the cell ceilings in a pooled tick bin, the M2 fit recovering its parameters,
+leave-one-day-out choosing the true model, vertex = `pooled.core2`'s a*, P-M parameter validation and the
+min-runs and ceiling rules, and the structure of a whole unit run.
+
+Full suite (`uv run --group dev --group analysis pytest`): 390 passed, 28 skipped (was 344 passed). The new
+file runs in about 4 s.
+
+## 6. Open (not decided here)
+
+- **P-C** has no definition in the repo. Holm structurally refuses it, but no P-C output is produced here.
+- **P-M's top-bin condition, read literally.** It is beta_top's upper bound below 0. With G(l) ~ l^-beta, that
+  means impact grows with lag in the top size bin. It is implemented as written; if the intended reference
+  value is not 0, it is one constant in `decide_pm`.
+- **P-M bins on real sizes.** With a mass of runs at one size (round lots), quantile edges coincide; ties go to
+  the lower bin, and min_runs_per_bin then drops the stock-day. Phase 3d-2 should look at bin occupancy when it
+  chooses n_bins and min_runs_per_bin.
+- **Proposition 1** is not in the repo or in either Maitrier and Bouchaud paper. psi-hat is the size exponent of
+  the immediate signed response, the psi of the generators' q^psi impact. On G0 it recovers 0.5.
+- **Compute cost** at confirmation tick-bin sizes, with N_SUR = 4 and B = 200, is not measured.
