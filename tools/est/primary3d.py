@@ -537,12 +537,17 @@ def psi_hat(pmo: dict, Wd, Ws, n_days: int) -> tuple[np.ndarray, np.ndarray]:
 def m3_V(flow: Flow) -> np.ndarray:
     """M3, the independent-volume prediction per stock-day, (n_sd, na, nT):
     V_a(T) = T E[q^2a] + 2 E[q^a]^2 sum_{l=1}^{T-1} (T - l) C(l), C the stock-day's uncentred sign ACF,
-    the moments over its (clipped) sizes. It is the expectation of V_a(T) under within-day size shuffling."""
+    the moments over its (clipped) sizes. It is the expectation of V_a(T) under within-day size shuffling.
+    C(l) exists only for l < N: at a horizon T > N the stock-day has no window and M3 is NaN, like the real V
+    (fix of Phase 3d-2: the ACF to lag 63 crashed on a day of fewer than 32 runs and wrapped around for
+    32 <= N < 64)."""
     T = C.T_GRID
     out = np.empty((len(flow.lengths), len(C.A_GRID), len(T)))
     for i in range(len(flow.lengths)):
         s = flow.day(i)
-        Cl = PR.sign_acf(flow.eps[s], int(T[-1]) - 1)
+        lag = min(int(T[-1]) - 1, int(flow.lengths[i]) - 1)
+        Cl = np.full(int(T[-1]), np.nan)
+        Cl[: lag + 1] = PR.sign_acf(flow.eps[s], lag)
         tri = np.array([np.sum((t - np.arange(1, t)) * Cl[1:t]) for t in T])
         for j, a in enumerate(C.A_GRID):
             qa = flow.q[s] ** a
