@@ -58,6 +58,8 @@ RANGE_NAMES = tuple(f"[{lo},{hi}]" for lo, hi in C.RANGES)
 CHUNK = 50
 N_SUR = 4  # CHOICE: surrogate draws per surrogate kind, zeta_V averaged over them
 PSI_BINS = 10  # CHOICE: psi-hat over deciles of run size (the definition fixes quantile bins, not how many)
+PSI_MIN_RUNS = 100  # CHOICE (3d-2b): a psi-hat bin holds at least 100 steps over the stock's study days
+PSI_MIN_BINS = 3  # CHOICE (3d-2b): a stock's psi-hat slope needs at least 3 realised bins
 PM_L_MIN = 1  # CHOICE: the propagator fit starts at lag 1
 PM_BETAS = np.round(np.arange(-1.0, 1.5001, 0.01), 2)  # CHOICE: propagator.fit_power's form, beta < 0 allowed
 PM_L0S = np.logspace(-1, 2.5, 71)  # propagator.fit_power's grid
@@ -478,15 +480,46 @@ def sig2_per_sd(flow: Flow) -> np.ndarray:
     return np.array([np.var(np.log(flow.q[flow.day(i)])) for i in range(len(flow.lengths))])
 
 
-def psi_moments(flow: Flow, n_bins: int = PSI_BINS) -> dict:
-    """Inputs of psi-hat. Per stock, quantile bins of run size over all its study days (ties to the lower bin);
-    steps n with ok at n and n + 1 inside a day, Delta_1 = lm_{n+1} - lm_n. Returns ysum, cnt (n_sd, nb): per
-    stock-day and bin the sum of Delta_1 eps and the number of steps; lmed (S, nb): log of the bin's median
-    run size over the stock's days (fixed across replicates, CHOICE)."""
+def tie_bins(q: np.ndarray, n_target: int, min_runs: int) -> tuple[np.ndarray, np.ndarray]:
+    """Tie-aware size bins (CHOICE, Phase 3d-2b, from the pilot's bin occupancy before any power result).
+    On the sorted sizes, the n_target - 1 quantile cuts are each moved to the nearest boundary between
+    distinct sizes (ties of distance: the lower boundary), so every run of one size falls in one bin; cuts
+    that coincide drop out; then the smallest bin (the first on ties) is merged with its smaller neighbour
+    (the lower on ties) until every bin holds at least min_runs runs or one bin is left. Returns (bin index
+    per run, 0..k-1, and the bins' upper sizes (k - 1,), each the largest size of its bin); k is the realised
+    bin count."""
+    q = np.asarray(q, dtype=float)
+    v, cnt = np.unique(q, return_counts=True)
+    if len(v) == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0)
+    cum = np.cumsum(cnt)[:-1]  # runs at or below each inner boundary
+    cuts = set()
+    for k in range(1, n_target):
+        if len(cum):
+            cuts.add(int(np.argmin(np.abs(cum - k * len(q) / n_target))))
+    ends = sorted(cuts) + [len(v) - 1]  # last distinct-value index of each bin
+    sizes = np.diff(np.concatenate([[0], np.cumsum(cnt)[ends]])).tolist()
+    while len(sizes) > 1 and min(sizes) < min_runs:
+        i = int(np.argmin(sizes))
+        j = i - 1 if i == len(sizes) - 1 or (i > 0 and sizes[i - 1] <= sizes[i + 1]) else i + 1
+        lo = min(i, j)
+        sizes[lo : lo + 2] = [sizes[lo] + sizes[lo + 1]]
+        del ends[lo]
+    upper = v[ends[:-1]]
+    return np.searchsorted(upper, q, side="left"), upper
+
+
+def psi_moments(flow: Flow, n_bins: int = PSI_BINS, min_runs: int = PSI_MIN_RUNS) -> dict:
+    """Inputs of psi-hat. Per stock, tie-aware bins of run size (tie_bins: n_bins target quantile bins over
+    all its study days' steps, each bin at least min_runs steps); steps n with ok at n and n + 1 inside a
+    day, Delta_1 = lm_{n+1} - lm_n. Returns ysum, cnt (n_sd, n_bins): per stock-day and bin the sum of
+    Delta_1 eps and the number of steps; lmed (S, n_bins): log of the bin's median run size over the stock's
+    days (fixed across replicates, CHOICE), NaN for bins beyond the stock's realised count; n_real (S,)."""
     S_, D_ = flow.Nsd.shape
     ysum = np.zeros((len(flow.lengths), n_bins))
     cnt = np.zeros((len(flow.lengths), n_bins))
     lmed = np.full((S_, n_bins), np.nan)
+    n_real = np.zeros(S_, dtype=np.int64)
     for s in range(S_):
         days = []
         for i in range(s * D_, (s + 1) * D_):
@@ -495,35 +528,39 @@ def psi_moments(flow: Flow, n_bins: int = PSI_BINS) -> dict:
             v = ok[:-1] & ok[1:]
             days.append((i, flow.eps[sl][:-1][v], flow.q[sl][:-1][v], np.diff(flow.lm[sl])[v]))
         qall = np.concatenate([d[2] for d in days])
-        if len(qall) < n_bins:
+        if len(qall) == 0:
             continue
-        edges = np.quantile(qall, np.linspace(0, 1, n_bins + 1)[1:-1])
+        ball, upper = tie_bins(qall, n_bins, min_runs)
+        n_real[s] = len(upper) + 1
         for i, e, q, r in days:
-            b = np.searchsorted(edges, q, side="left")
+            b = np.searchsorted(upper, q, side="left")
             ysum[i] = np.bincount(b, e * r, minlength=n_bins)
             cnt[i] = np.bincount(b, minlength=n_bins)
-        ball = np.searchsorted(edges, qall, side="left")
-        for k in range(n_bins):
-            if np.any(ball == k):
-                lmed[s, k] = np.log(np.median(qall[ball == k]))
-    return {"ysum": ysum, "cnt": cnt, "lmed": lmed}
+        for k in range(n_real[s]):
+            lmed[s, k] = np.log(np.median(qall[ball == k]))
+    return {"ysum": ysum, "cnt": cnt, "lmed": lmed, "n_real": n_real}
 
 
 def psi_hat(pmo: dict, Wd, Ws, n_days: int) -> tuple[np.ndarray, np.ndarray]:
     """psi-hat as pre-registered: per stock, the OLS slope of log E[Delta_1 eps | q-bin] on log(median q of
-    the bin) over the stock's quantile bins of run size, E under the replicate's day weights; pooled within
-    the unit as the equal-weight mean over stocks (replicate stock weights) of the stocks whose slope is
-    defined. CHOICE: a stock with a bin whose E is not positive (log undefined) has no slope and is left
-    out. Returns (psi (B,), number of stocks with a slope (B,))."""
+    the bin) over the stock's realised size bins (psi_moments), E under the replicate's day weights; pooled
+    within the unit as the equal-weight mean over stocks (replicate stock weights) of the stocks whose slope
+    is defined. CHOICE: a stock with fewer than PSI_MIN_BINS realised bins, or a bin whose E is not positive
+    (log undefined), has no slope and is left out. Returns (psi (B,), number of stocks with a slope (B,))."""
     S_ = len(pmo["lmed"])
     ys = pmo["ysum"].reshape(S_, n_days, -1)
     cs = pmo["cnt"].reshape(S_, n_days, -1)
+    real = np.isfinite(pmo["lmed"])  # (S, nb)
+    nr = real.sum(axis=1, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         E = np.einsum("bd,sdk->bsk", Wd, ys) / np.einsum("bd,sdk->bsk", Wd, cs)
         logE = np.where(E > 0, np.log(np.where(E > 0, E, 1.0)), np.nan)
-        xc = pmo["lmed"] - pmo["lmed"].mean(axis=1, keepdims=True)
-        w = xc / np.sum(xc * xc, axis=1, keepdims=True)
-    slope = np.einsum("bsk,sk->bs", logE, w)
+        lm0 = np.where(real, pmo["lmed"], 0.0)
+        xc = np.where(real, lm0 - lm0.sum(axis=1, keepdims=True) / nr, 0.0)
+        w = np.where(nr >= PSI_MIN_BINS, xc / np.sum(xc * xc, axis=1, keepdims=True), np.nan)
+    slope = np.einsum("bsk,sk->bs", np.where(real[None], logE, 0.0), np.where(real, w, 0.0))
+    slope = np.where(np.all(np.isfinite(logE) | ~real[None], axis=2) & np.all(np.isfinite(w), axis=1)[None],
+                     slope, np.nan)
     fin = np.isfinite(slope)
     ws = Ws * fin
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -653,13 +690,15 @@ class PMParams:
 
 
 def pm_moments(flow: Flow, rho: np.ndarray, pm: PMParams) -> dict:
-    """Per stock-day, with x_b(n) = eps_n 1[q_n in size bin b] (bins: the stock-day's own size quantiles,
-    ties to the lower bin) and r_n = lm_{n+1} - lm_n over valid steps, divided by the stock-day's rms r
+    """Per stock-day, with x_b(n) = eps_n 1[q_n in size bin b] (bins: tie_bins of the stock-day's sizes,
+    target n_bins, at least min_runs_per_bin runs each; Phase 3d-2b) and
+    r_n = lm_{n+1} - lm_n over valid steps, divided by the stock-day's rms r
     (CHOICE: comparable scale across stocks):
         Cp[b, b', k] = mean_n x_b(n) x_b'(n + k), k = 0..L-1;   Sr[b, l] = mean_n x_b(n) r_{n+l}, l = 0..L-1;
         xlog[b] = mean log q in bin b minus the stock-day's mean log q.
-    A stock-day is used only if every bin holds >= min_runs_per_bin runs, N > L + 1, and its stock reaches
-    L under its cell's ceiling (CHOICE: L <= rho N_s); unused stock-days are NaN."""
+    A stock-day is used only if its realised bin count is n_bins (so every bin holds >= min_runs_per_bin runs
+    and no size is split across bins), N > L + 1, and its stock reaches L under its cell's ceiling (CHOICE:
+    L <= rho N_s); unused stock-days are NaN."""
     nb, L = pm.n_bins, pm.L
     n_sd = len(flow.lengths)
     Ns = np.repeat(flow.Nsd.min(axis=1), flow.n_days)
@@ -674,10 +713,10 @@ def pm_moments(flow: Flow, rho: np.ndarray, pm: PMParams) -> dict:
             continue
         s = flow.day(i)
         q, e, lm, ok = flow.q[s], flow.eps[s], flow.lm[s], flow.ok[s]
-        b = np.searchsorted(np.quantile(q, np.linspace(0, 1, nb + 1)[1:-1]), q, side="left")
-        cnt = np.bincount(b, minlength=nb)
-        if cnt.min() < pm.min_runs_per_bin:
+        b, upper = tie_bins(q, nb, pm.min_runs_per_bin)
+        if len(upper) != nb - 1:
             continue
+        cnt = np.bincount(b, minlength=nb)
         v = ok[:-1] & ok[1:]
         r = np.where(v, np.diff(lm), 0.0)
         rms = np.sqrt(np.mean(r[v] ** 2)) if v.any() else 0.0

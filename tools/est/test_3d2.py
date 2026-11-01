@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 import analyse3d2 as A
+import diag3d2b as DB
 import gen3 as G
 import mbmodel as M
 import panel3c as PC
@@ -47,9 +48,11 @@ def check_world_labels():
 
 
 def check_world_specs():
-    assert W.world_spec("W-null") == {"flow": "real_s1", "gen": "GF", "psi": 0.5}
-    assert W.world_spec("W0") == {"flow": "real", "gen": "G0", "psi": 0.5}
-    assert W.world_spec("W0-psi3") == {"flow": "real", "gen": "G0", "psi": 0.3}
+    assert W.world_spec("W-null") == {"flow": "real_s1", "signs": "coin_informed", "gen": "GF", "psi": 0.5}
+    assert W.world_spec("W0") == {"flow": "real", "signs": "real", "gen": "G0", "psi": 0.5}
+    assert W.world_spec("W0-psi3") == {"flow": "real", "signs": "real", "gen": "G0", "psi": 0.3}
+    assert W.world_spec("W-null-real")["signs"] == "real" and W.world_spec("W0-shuf")["signs"] == "day_shuffled"
+    assert not set(W.DIAG_WORLDS) & set(W.WORLDS)
     assert W.world_spec("WB")["gen"] == "WB" and W.world_spec("WM")["flow"] == "mb"
     assert W.WB_BETA == (0.6, -0.3) and W.BURN == 20_000
     with pytest.raises(ValueError):
@@ -311,11 +314,95 @@ def check_m3_short_days():
 
 
 
+# ---- Phase 3d-2b: tie-aware bins, the clean P-F null, the long-day unit ---------------------------------------
+
+
+def tied_sizes(seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return rng.permutation(np.concatenate([np.full(400, 100.0), np.full(150, 200.0), rng.integers(1, 99, 300),
+                                           rng.integers(201, 2000, 150)]).astype(float))
+
+
+def check_tie_bins():
+    """Every size in one bin, every bin at least min_runs and none empty, the known answer on a tied sample,
+    one bin for one size, equal bins without ties; pm_moments uses only stock-days at the target count."""
+    q = tied_sizes()
+    for nb, mr in [(3, 20), (5, 50), (10, 100), (5, 400)]:
+        b, upper = P.tie_bins(q, nb, mr)
+        k = len(upper) + 1
+        assert k <= nb and np.array_equal(np.unique(b), np.arange(k))
+        cnt = np.bincount(b, minlength=k)
+        assert cnt.min() >= min(mr, len(q)) and cnt.min() > 0
+        for v in np.unique(q):
+            assert len(np.unique(b[q == v])) == 1, (nb, mr, v)
+    b, upper = P.tie_bins(q, 5, 50)
+    assert np.bincount(b).tolist() == [199, 101, 400, 150, 150]
+    assert len(P.tie_bins(np.full(30, 7.0), 3, 1)[1]) == 0
+    assert np.bincount(P.tie_bins(np.arange(9.0), 3, 1)[0]).tolist() == [3, 3, 3]
+    n = 3 * len(q)
+    lm = np.cumsum(np.random.default_rng(1).normal(size=n))  # any mid with moves (rms r > 0)
+    f = P.Flow(np.ones(n), np.concatenate([q, np.full(len(q), 100.0), q]), lm, np.ones(n, bool),
+               np.arange(n, dtype=np.int64), np.arange(3) * len(q), np.full(3, len(q)), 3)
+    used = P.pm_moments(f, np.array([1.0]), P.PMParams(3, 16, 128, 50))["used"]
+    assert used.tolist() == [True, False, True]  # the all-100 day has one realised bin
+    mo = P.psi_moments(f)
+    assert mo["n_real"][0] >= 3 and np.sum(np.isfinite(mo["lmed"][0])) == mo["n_real"][0]
+
+
+def check_coin_informed():
+    """W-null's informed runs: a random 10 % with fair-coin signs; every other run keeps its real sign."""
+    eps = np.ones(200_000)
+    out, inf = W.coin_informed(eps, np.random.default_rng(0))
+    assert abs(inf.mean() - W.GF_F_INF) < 0.005
+    assert np.all(out[~inf] == 1.0) and abs(np.mean(out[inf] == -1.0) - 0.5) < 0.01
+
+
+def stock_flow(f: P.Flow, s: int) -> P.Flow:
+    D_ = f.n_days
+    a, b = int(f.starts[s * D_]), int(f.starts[(s + 1) * D_ - 1] + f.lengths[(s + 1) * D_ - 1])
+    lengths = f.lengths[s * D_ : (s + 1) * D_]
+    return P.Flow(f.eps[a:b], f.q[a:b], f.lm[a:b], f.ok[a:b], f.ts[a:b], np.concatenate([[0], np.cumsum(lengths)[:-1]]),
+                  lengths, D_)
+
+
+def check_long_unit_matches_run_unit():
+    """diag3d2b's long-day unit (inputs computed one stock at a time, run_unit fed through patched_inputs)
+    gives exactly run_unit's p-values and a*; the grid patch is restored."""
+    flows = {"Q-T3S1": g0_cell_flow(6, 4, 900, 1)}
+    u = P.cell_unit(flows, "Q-T3S1")
+    pm = P.PMParams(3, 16, 128, 50)
+    want = C.PRIMARY_TESTS
+    parts = [DB.stock_parts(stock_flow(u.flow, s), C.CONFIRMATORY["Q-T3S1"], np.random.default_rng(s), [pm], n_sur=2)
+             for s in range(u.flow.n_stocks)]
+    u2, inputs = DB.assemble(parts, u.flow.n_days, C.CONFIRMATORY["Q-T3S1"])
+    sur, P.surrogate_raws = P.surrogate_raws, lambda u, kind, n, rng: inputs["sur"][kind][:n]  # the same draws
+    try:
+        ref = P.run_unit(u, pm, np.random.default_rng(3), n_boot=30, tests=want)
+    finally:
+        P.surrogate_raws = sur
+    with DB.patched_inputs(inputs):
+        got = P.run_unit(u2, pm, np.random.default_rng(3), n_boot=30, tests=want)
+    assert P.m3_V is not inputs and callable(P.m3_V) and P.m3_V.__name__ == "m3_V"
+    for t in want:
+        assert got["tests"][t].p == ref["tests"][t].p, t
+    for k in ("estimate", "lo", "hi"):  # equal to rounding (per-stock FFT moments)
+        for st in (lambda r: r["tests"]["P-R"].statistic["a_star_T1_T2"],
+                   lambda r: r["tests"]["P-R"].secondary["psi_hat"],
+                   lambda r: r["tests"]["P-V"].statistic["slope_S2"], lambda r: r["tests"]["P-M"].statistic["slope"]):
+            assert np.allclose(st(got)[k], st(ref)[k], rtol=1e-9, atol=1e-12)
+    assert np.allclose(DB.a_star_all_T(u2), DB.a_star_all_T(u), rtol=1e-9)
+    g0 = C.T_GRID
+    with DB.grid(2 ** np.arange(11), ((64, 512), (128, 1024))):
+        assert C.T_GRID[-1] == 1024 and P.KW["ranges"] == ((64, 512), (128, 1024))
+    assert C.T_GRID is g0 and C.RANGES == ((4, 32), (8, 64)) and P.KW["T_grid"] is g0
+
+
 CHECKS = {f.__name__: f for f in [
     check_world_labels, check_world_specs, check_design_rule, check_design_rule_ties_and_fallback,
     check_router_share_once, check_thin_settings_paired, check_setting_grid, check_burn_from_other_days,
     check_wb_beta_and_impact, check_semi_response_direct, check_semi_flow_unchanged, check_wm_burn,
-    check_tick_bin_matches_run_primary, check_m3_short_days,
+    check_tick_bin_matches_run_primary, check_m3_short_days, check_tie_bins, check_coin_informed,
+    check_long_unit_matches_run_unit,
 ]}
 
 
@@ -355,8 +442,9 @@ BUGS = [
     Bug("reject counted without the conditions", A, "correct_rate",
         'if lab == "reject":\n        return rate([d["passed"] for d in decs])',
         'if lab == "reject":\n        return rate([d["rejected"] for d in decs])', ("check_world_labels",)),
-    Bug("W0-psi3 generated at psi = 0.5", W, "world_spec", '"W0-psi3": {"flow": "real", "gen": "G0", "psi": 0.3}',
-        '"W0-psi3": {"flow": "real", "gen": "G0", "psi": PSI}', ("check_world_specs",)),
+    Bug("W0-psi3 generated at psi = 0.5", W, "world_spec",
+        '"W0-psi3": {"flow": "real", "signs": "real", "gen": "G0", "psi": 0.3}',
+        '"W0-psi3": {"flow": "real", "signs": "real", "gen": "G0", "psi": PSI}', ("check_world_specs",)),
     Bug("burn-in includes the day itself", W, "burn_index", "if j != d", "if True", ("check_burn_from_other_days",)),
     Bug("WB anchors reversed", W, "wb_beta", "b0, b1 = betas", "b1, b0 = betas", ("check_wb_beta_and_impact",)),
     Bug("burn-in kept in the day's mid", W, "semi_response", "m[sst[k] + burn : sst[k] + ser[k]]",
@@ -369,6 +457,31 @@ BUGS = [
         "out[a : a + n] = SU.s1(q, rng)[:n]", ("check_semi_flow_unchanged",)),
     Bug("m3_V ACF to lag 63 whatever the day length", P, "m3_V", "lag = min(int(T[-1]) - 1, int(flow.lengths[i]) - 1)",
         "lag = int(T[-1]) - 1", ("check_m3_short_days",)),
+    Bug("a size value split across two bins (rank cuts)", P, "tie_bins",
+        'return np.searchsorted(upper, q, side="left"), upper',
+        'return np.minimum(np.argsort(np.argsort(q, kind="stable")) * (len(upper) + 1) // len(q), len(upper)), upper',
+        ("check_tie_bins",)),
+    Bug("empty bin kept (coinciding cuts kept, no merge)", P, "tie_bins",
+        "cuts = set()\n    for k in range(1, n_target):\n        if len(cum):\n            cuts.add(int(np.argmin("
+        "np.abs(cum - k * len(q) / n_target))))\n    ends = sorted(cuts) + [len(v) - 1]  # last distinct-value index"
+        " of each bin\n    sizes = np.diff(np.concatenate([[0], np.cumsum(cnt)[ends]])).tolist()\n"
+        "    while len(sizes) > 1 and min(sizes) < min_runs:",
+        "cuts = []\n    for k in range(1, n_target):\n        if len(cum):\n            cuts.append(int(np.argmin("
+        "np.abs(cum - k * len(q) / n_target))))\n    ends = sorted(cuts) + [len(v) - 1]\n    sizes = []\n"
+        "    while False:",
+        ("check_tie_bins",)),
+    Bug("P-M uses a stock-day below the target bin count", P, "pm_moments",
+        "if len(upper) != nb - 1:", "if len(upper) > nb - 1:", ("check_tie_bins",)),
+    Bug("W-null informed runs keep their real signs", W, "coin_informed", "np.where(informed, coin, eps)",
+        "np.where(informed, eps, eps)", ("check_coin_informed",)),
+    Bug("W-null spec without the coin-flip signs", W, "world_spec",
+        '"W-null": {"flow": "real_s1", "signs": "coin_informed"', '"W-null": {"flow": "real_s1", "signs": "real"',
+        ("check_world_specs",)),
+    Bug("long unit: surrogate draws for P-V from the wrong kind", DB, "patched_inputs",
+        'inputs["sur"][kind][:n]', 'inputs["sur"]["S1"][:n]', ("check_long_unit_matches_run_unit",)),
+    Bug("long unit: the grid patch not restored", DB, "grid",
+        "C.T_GRID, C.RANGES, C.PRIMARY_RANGE, C.FALLBACK_RANGE, P.KW, P.RANGE_NAMES = saved", "pass",
+        ("check_long_unit_matches_run_unit",)),
 ]
 DATA_BUGS = [
     ("WB's P-M labelled no reject", ("WB", "P-M", "no reject")),

@@ -17,7 +17,9 @@ BURN + N runs, the first BURN discarded.
 
 Worlds (flow, response):
   W-null   real flow, sizes permuted within each stock-day (surrogates.s1), GF response (informed runs a
-           random 10 %, permanent impact eps q^psi, psi = 0.5)
+           random 10 %, permanent impact eps q^psi, psi = 0.5). Phase 3d-2b: the informed runs' signs are
+           independent fair coins (as GF in 3a), so the price is a random walk independent of the real signs
+           and zeta_K(a) is flat; every other run keeps its real sign
   W0       real flow, G0 response (one size-independent kernel (1 + l)^-beta, beta = gen3.g0_beta(cell),
            impact eps q^psi, psi = 0.5)
   W0-psi3  as W0 with psi = 0.3
@@ -28,6 +30,9 @@ Worlds (flow, response):
   WM       the Paper II model, mbmodel.PAPER2, its own flow; day lengths from exploration stocks of each
            cell (panel3c.day_lengths); every stock-day is the first N trades after BURN trades of an
            mbmodel day (the burn-in trades' impact stays in the mid)
+Diagnostic worlds (Phase 3d-2b, not in WORLDS): W-null-real is the pilot's W-null (informed runs keep their
+real signs); W0-shuf is W0 on the real flow with every stock-day's signs permuted within the day (no sign
+memory), burn-in included.
 CORRECT gives, per world, the outcome that is correct for each primary test (None: no label imposed).
 
 Thinning (WM only, descriptive): the observed flow of a venue that sees share s of the market. CHOICE: the
@@ -61,7 +66,8 @@ WB_BETA = (0.6, -0.3)  # bottom-quintile and top-quintile anchors
 WM_PARAMS = M.PAPER2
 DAY_NS = (34_200 * 10**9, 57_600 * 10**9)  # 9:30 to 16:00 ET, for WM timestamps
 WORLDS = ("W-null", "W0", "W0-psi3", "WB", "WM")
-SEMI = ("W-null", "W0", "W0-psi3", "WB")
+DIAG_WORLDS = ("W-null-real", "W0-shuf")
+SEMI = ("W-null", "W0", "W0-psi3", "WB") + DIAG_WORLDS
 
 # Correct outcome per (world, test): "reject" (Holm rejects and every condition holds), "no reject", "pass"
 # (P-R: the equivalence established, which is its rejection with both conditions), "fail" (P-R not
@@ -79,13 +85,16 @@ PV_SIZE_WORLD, PV_POWER_WORLD = "W-null", "WM"
 
 
 def world_spec(world: str) -> dict:
-    """flow ('real', 'real_s1' or 'mb'), response generator and psi."""
+    """flow ('real', 'real_s1' or 'mb'), signs ('real', 'coin_informed': GF's informed runs get fair coins,
+    'day_shuffled': permuted within each stock-day, 'model'), response generator and psi."""
     spec = {
-        "W-null": {"flow": "real_s1", "gen": "GF", "psi": PSI},
-        "W0": {"flow": "real", "gen": "G0", "psi": PSI},
-        "W0-psi3": {"flow": "real", "gen": "G0", "psi": 0.3},
-        "WB": {"flow": "real", "gen": "WB", "psi": PSI},
-        "WM": {"flow": "mb", "gen": "MB", "psi": None},
+        "W-null": {"flow": "real_s1", "signs": "coin_informed", "gen": "GF", "psi": PSI},
+        "W0": {"flow": "real", "signs": "real", "gen": "G0", "psi": PSI},
+        "W0-psi3": {"flow": "real", "signs": "real", "gen": "G0", "psi": 0.3},
+        "WB": {"flow": "real", "signs": "real", "gen": "WB", "psi": PSI},
+        "WM": {"flow": "mb", "signs": "model", "gen": "MB", "psi": None},
+        "W-null-real": {"flow": "real_s1", "signs": "real", "gen": "GF", "psi": PSI},
+        "W0-shuf": {"flow": "real", "signs": "day_shuffled", "gen": "G0", "psi": PSI},
     }
     if world not in spec:
         raise ValueError(f"unknown world {world!r}")
@@ -159,6 +168,13 @@ def shuffle_sizes(q: np.ndarray, lengths: np.ndarray, rng: np.random.Generator) 
     return out
 
 
+def coin_informed(eps: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    """GF's informed runs (a random GF_F_INF) with independent fair-coin signs; the rest keep theirs."""
+    informed = rng.random(len(eps)) < GF_F_INF
+    coin = np.where(rng.random(len(eps)) < 0.5, 1.0, -1.0)
+    return np.where(informed, coin, eps), informed
+
+
 # ---- responses on stationary days ------------------------------------------------------------------------
 
 
@@ -196,17 +212,20 @@ def wb_impact(x: np.ndarray, beta: np.ndarray, starts, lengths, n_nodes: int = 2
     return PC.batched_multi_conv([x * L[c] for c in range(len(nodes))], list(map(float, nodes)), starts, lengths)
 
 
-def semi_response(world: str, cell: G.Cell, eps, q, Nsd, rng, burn: int = BURN, group: int | None = None):
+def semi_response(world: str, cell: G.Cell, eps, q, Nsd, rng, burn: int = BURN, group: int | None = None,
+                  informed: np.ndarray | None = None):
     """The synthetic mid of a semi-synthetic world on the given flow (raw q), independent stationary days.
     Stock-days are generated in groups of `group` (default panel3c.DAY_GROUP; 8 for WB, whose Chebyshev
-    weights and 20 node series each hold a copy of the group's series: 64 peaked near 1 GB, measured)."""
+    weights and 20 node series each hold a copy of the group's series: 64 peaked near 1 GB, measured).
+    GF: `informed` is the informed-run mask (default: a random GF_F_INF of the runs, drawn here)."""
     sp = world_spec(world)
     group = group or (8 if sp["gen"] == "WB" else PC.DAY_GROUP)
     lengths = Nsd.ravel().astype(np.int64)
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]])
     psi = sp["psi"]
     if sp["gen"] == "GF":
-        informed = rng.random(len(eps)) < GF_F_INF
+        if informed is None:
+            informed = rng.random(len(eps)) < GF_F_INF
         return PC.response("GF", cell, eps, q, starts, lengths, rng, {"informed": informed, "psi": psi})
     S_, D_ = Nsd.shape
     per = Nsd.sum(axis=1)
@@ -251,9 +270,15 @@ def semi_cell_flow(world: str, cell: str, rng: np.random.Generator, n_stocks: in
     f = resample_stocks(fc, n, rng)
     lengths = f["Nsd"].ravel().astype(np.int64)
     starts = np.concatenate([[0], np.cumsum(lengths)[:-1]]).astype(np.int64)
-    q = shuffle_sizes(f["q"], lengths, rng) if world_spec(world)["flow"] == "real_s1" else f["q"]
-    lm = semi_response(world, G.load_cell(cell), f["eps"], q, f["Nsd"], rng)
-    return P.Flow(f["eps"], q, lm, np.ones(len(lm), bool), f["ts"], starts, lengths, N_DAYS)
+    sp = world_spec(world)
+    q = shuffle_sizes(f["q"], lengths, rng) if sp["flow"] == "real_s1" else f["q"]
+    eps, informed = f["eps"], None
+    if sp["signs"] == "coin_informed":
+        eps, informed = coin_informed(eps, rng)
+    elif sp["signs"] == "day_shuffled":
+        eps = shuffle_sizes(eps, lengths, rng)  # S1's within-day permutation, applied to the signs
+    lm = semi_response(world, G.load_cell(cell), eps, q, f["Nsd"], rng, informed=informed)
+    return P.Flow(eps, q, lm, np.ones(len(lm), bool), f["ts"], starts, lengths, N_DAYS)
 
 
 # ---- WM: the Paper II model ------------------------------------------------------------------------------

@@ -214,7 +214,8 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
   - da*/dlog T: the OLS slope over the range's horizons, two-sided p.
 
 **P-M.**
-- **Choice:** size bins are each stock-day's own quantiles, ties to the lower bin.
+- **Choice:** size bins are each stock-day's own tie-aware bins (`tie_bins`, section 7.2; until Phase 3d-2b,
+  quantiles with ties to the lower bin).
 - x_b(n) = eps_n 1[bin b]. r_n = lm_{n+1} - lm_n over valid steps, divided by the stock-day's rms (**Choice**).
 - Moments: Cp[b, b', k] = mean x_b(n) x_b'(n + k) and Sr[b, l] = mean x_b(n) r_{n+l}, for k, l < L.
 - They are pooled equal-weight per stock (days first), then solved for the size-binned propagator
@@ -223,7 +224,7 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
   **Choice:** the beta grid is -1 to 1.5, because the top-bin condition needs beta < 0 to be reachable.
 - The slope is OLS of beta_b on x_b, the bin's mean log size relative to the stock-day's.
 - **Choice:** a stock-day is used if:
-  - every bin holds >= min_runs_per_bin runs;
+  - its realised bin count equals n_bins, so every bin holds >= min_runs_per_bin runs (section 7.2);
   - N > L + 1;
   - its stock reaches L under its cell's ceiling (L <= rho N_s).
 
@@ -257,7 +258,8 @@ p-values, at family-wise 0.05.
 ### 3.1 psi-hat (decision of 31 Oct 2026)
 
 psi-hat is exactly the pre-registered definition (`psi_moments`, `psi_hat`):
-- per stock, take the quantile bins of run size over all its study days (R2-clipped sizes);
+- per stock, take the quantile bins of run size over all its study days (R2-clipped sizes), made tie-aware in
+  Phase 3d-2b (section 7.2);
 - in each bin, E[Delta_1 eps | q-bin] is the mean of eps_n (lm_{n+1} - lm_n) over steps with ok at n and
   n + 1 inside a day;
 - the stock's psi is the OLS slope of log E[Delta_1 eps | q-bin] on log(median q of the bin), over the bins;
@@ -272,7 +274,8 @@ psi-hat is exactly the pre-registered definition (`psi_moments`, `psi_hat`):
 
 **Choices left inside the definition:**
 - 10 bins (the definition fixes quantile bins but not how many);
-- ties go to the lower bin;
+- ties go to the lower bin (replaced in Phase 3d-2b by tie-aware bins of at least 100 steps, and a slope needs
+  at least 3 realised bins; section 7.2);
 - the bin edges and medians are fixed per stock from all its days and held fixed across replicates, so only E
   is re-weighted;
 - a stock with a bin whose E is not positive has no slope (log undefined) and is left out. The number of stocks
@@ -351,9 +354,49 @@ Phase 3d-1). The new file runs in about 4 s.
   means impact grows with lag in the top size bin. It is implemented as written; if the intended reference
   value is not 0, it is one constant in `decide_pm`.
 - **P-M bins on real sizes.** With a mass of runs at one size (round lots), quantile edges coincide; ties go to
-  the lower bin, and min_runs_per_bin then drops the stock-day. Phase 3d-2 should look at bin occupancy when it
-  chooses n_bins and min_runs_per_bin.
+  the lower bin, and min_runs_per_bin then drops the stock-day. Resolved in Phase 3d-2b by tie-aware bins
+  (section 7.2).
 - **Proposition 1** is not in the repo or in either Maitrier and Bouchaud paper. psi-hat follows the
   pre-registered definition (section 3.1). Under sign memory with a decaying kernel (G0), past runs add a
   q-independent term to E[Delta_1 eps | q], and psi-hat reads 0.537 against a true 0.5.
 - **Compute cost** at confirmation tick-bin sizes, with N_SUR = 4 and B = 200, is not measured.
+
+## 7. Changes after the freeze
+
+Both changes below were made before any confirmation data were read and before any power result of Phase 3d-2.
+
+### 7.1 `m3_V`: pre-freeze bug fix (Phase 3d-2; approved 1 Nov 2026)
+
+- **The bug.** `m3_V` computed the sign ACF to lag 63 (the largest horizon minus 1) on every stock-day,
+  whatever its length. `propagator.sign_acf` uses an FFT of size 2N, so:
+  - on a day of fewer than 32 runs it crashed ("ValueError: operands could not be broadcast together with
+    shapes (8,) (64,)");
+  - on a day of 32 to 63 runs it returned lags that wrapped around the day, so M3 was wrong at every horizon.
+- **Why it mattered.** Real Q-T1 data have many short days: 164 of the 552 exploration stock-days of Q-T1S1
+  have fewer than 64 runs, the shortest has 1. `run_primary` would have crashed on the real Q-T1 tick bin.
+- **The fix.** The ACF is computed only to lag N - 1, and M3 is NaN at a horizon T > N, where the day has no
+  window and the real V is also undefined. A day with any undefined value was already skipped for every
+  model (section 3, P-V (i)), so nothing else changed.
+- **Check.** `test_3d2.check_m3_short_days` (days of 5, 40 and 200 runs: finite where the day has a window, NaN
+  beyond), with the old line planted back as a bug. The 3d-1 tests are unchanged and pass.
+
+### 7.2 Tie-aware size bins for P-M and psi-hat (Phase 3d-2b, Choice)
+
+Made from the pilot's bin occupancy (docs/phase3d2_report.md), before any power result.
+- **Rule** (`tie_bins(q, n_target, min_runs)`): on the sorted sizes, each of the n_target - 1 quantile cuts
+  moves to the nearest boundary between distinct sizes (equal distance: the lower boundary). So every run of
+  one size falls in one bin. Cuts that coincide drop out. Then the smallest bin (the first on ties) is merged
+  with its smaller neighbour (the lower on ties) until every bin holds at least min_runs runs, or one bin is
+  left. The realised bin count is recorded.
+- **P-M**: bins per stock-day, target n_bins, min_runs = min_runs_per_bin. A stock-day is used only when its
+  realised count equals n_bins, because the pooled moments need the same bins on every stock-day.
+- **psi-hat**: bins per stock over all its study days' steps, target 10. **Choice:** at least 100 steps per
+  bin (PSI_MIN_RUNS), and a stock's slope needs at least 3 realised bins (PSI_MIN_BINS). Bins beyond a
+  stock's realised count are NaN and carry no weight.
+- **Why.** Round lots are 28 to 49 % of runs in the confirmatory tick bins. Under the old rule, coinciding
+  quantile edges left empty bins, so psi-hat was undefined for every Q-T3 stock and for all but a handful of
+  Q-T1 stocks, and P-M lost up to half its stock-days at 5 bins.
+- **Checks** (`test_3d2.check_tie_bins`): every size in one bin, no empty bin, every bin at least min_runs, a
+  known answer on a tied sample, P-M using only stock-days at the target count, psi's realised count. Planted
+  bugs: a size value split across two bins (rank cuts); an empty bin kept (coinciding cuts kept, no merge); a
+  stock-day below the target count used by P-M.

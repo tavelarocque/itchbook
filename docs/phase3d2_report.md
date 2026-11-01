@@ -6,6 +6,12 @@ only their signs, sizes and timestamps (`worlds3d2.build_flow_cache` keeps exact
 replication file was opened. Every price response is synthetic; nothing combines real signs or sizes with real
 price changes.
 
+**Superseded in part by Phase 3d-2b (`docs/phase3d2b_report.md`).** Since this report, W-null has been
+redefined: its informed runs now get fair-coin signs. The old W-null is kept as W-null-real. psi-hat and P-M
+now use tie-aware size bins (`primary3d.tie_bins`). The pilot's numbers below predate both changes. In
+particular, the pilot's W-null P-F rejections (8 of 10) came from the real informed signs and do not occur
+under the clean null (0 of 20 per tick bin).
+
 ## Headlines
 
 1. **The study does not fit this session (Measurement).** The pilot (150 panel-tick-bins, 30.7 min on 2 workers)
