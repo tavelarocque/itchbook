@@ -124,8 +124,17 @@ through the T powers of Eqs. 71 and 72.
 - Each stock carries its cell's ceiling from `prereg3d.CONFIRMATORY` (mask `("cellceil", rho)`).
 
 **Running.**
-- `run_tick_bin(flows, tb, pm, rng, n_boot=200, n_sur=4)` and `run_cell(...)`, both through `run_unit`.
-- They return `{"tests": {name: TestResult}, "holm": {...}, "descriptive": {"P-K": ...}, "unit": {...}}`.
+- `run_primary(flows, pm, rng, n_boot=200, n_sur=4)` is the primary analysis. For each tick bin:
+  - build the unit;
+  - decide `evaluability(Ns, rho, pm)` by the reach rule alone;
+  - run `run_unit` on the evaluable tests only.
+
+  Then `combine` runs one Holm family over the evaluable (test, tick bin) pairs, and `set_decisions` sets
+  `rejected` and `passed`. It returns `{"by_tick_bin", "evaluability", "family", "left", "holm"}`, where `left`
+  logs every pair that left the family, with its reason.
+- `run_tick_bin(flows, tb, ...)` gives one tick bin's results before the family's Holm. `run_cell(...)` is
+  secondary and never in the family. Both return `{"tests": {name: TestResult}, "descriptive": {"P-K": ...},
+  "unit": {...}}`.
 
 **`TestResult`.**
 - `p`, `alternative`, and `conditions` (every sub-condition as a bool).
@@ -133,13 +142,16 @@ through the T powers of Eqs. 71 and 72.
 - `range_used`, `range_rule` (primary, fallback or not evaluable), `reach` (stocks at T2 of each range) and
   `stocks_used` (indices at T2 of the range used).
 - `by_range`: both ranges, reported. `secondary`: never in Holm.
-- `rejected` (Holm) and `passed` = rejected AND every condition.
+- `rejected` (the family's Holm) and `passed` = rejected AND every condition.
 
 **Pure decision layers.** These take replicates (`Reps(est, ds, jk, ws)`): `decide_pv(errors, s1, s2)`,
 `decide_pr(ends)`, `decide_pm(slope, top)`, `decide_pf(pf)`.
 
 **Other functions.**
-- `holm(pvals)` takes exactly {P-V, P-R, P-M, P-F} and raises otherwise. `apply_holm(tests)` applies it.
+- `holm(pvals)`: keys must be (primary test, tick bin) pairs, so at most 12. P-K, P-C, a bare test name or an
+  unknown tick bin raise.
+- `combine(ev, pvals)`: refuses a p-value for a pair that left the family, and a family member without a
+  p-value.
 - `select_range(Ns, rho)`: the reach rule. Its only inputs are day lengths and ceilings.
 - `PMParams(n_bins, l_max, L, min_runs_per_bin)`: validated against prereg3d (bins 3, 4 or 5; l_max 16 or 32;
   L >= 8 l_max). There is no default; Phase 3d-2 chooses.
@@ -198,9 +210,7 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
 - Secondary:
   - R_{1/2}/R_0 at the range's middle horizon, against e^{sigma_l^2/8}, as a difference with interval and
     two-sided p. **Choice:** sigma_l^2 is each stock-day's variance of log clipped size, equal weight per stock.
-  - psi-hat. **Choice:** over deciles of size within each stock-day, the immediate signed response
-    eps_n (lm_{n+1} - lm_n) is regressed per stock on c0 + c1 mean (q/gm)^psi. psi is common to all stocks and
-    minimises the sum of 1 - R^2; the grid is 0 to 1.5 in steps of 0.01. It recovers psi = 0.5 on G0.
+  - psi-hat, the pre-registered definition (decision of 31 Oct 2026; section 3.1).
   - da*/dlog T: the OLS slope over the range's horizons, two-sided p.
 
 **P-M.**
@@ -230,12 +240,43 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
 +-3e-17 from the OLS weights (Measurement), and a consistent sign across replicates would then reject flatness on
 rounding alone.
 
-**Holm.**
-- Exactly {P-V, P-R, P-M, P-F}; any other family raises, so P-K and P-C cannot enter. NaN counts as 1.
-- Ascending p; the i-th smallest is compared with 0.05/(4 - i); stop at the first failure. Adjusted p-values are
-  reported.
-- **Choice:** one Holm family per tick bin, since the tick bin is the pooling unit. Per-cell runs report their
-  own Holm as secondary.
+**Holm (decision of 31 Oct 2026).** ONE family across all tick bins: the 4 tests x 3 tick bins give up to 12
+p-values, at family-wise 0.05.
+- Members are (test, tick bin) pairs. P-K and P-C cannot enter, and NaN counts as 1.
+- Ascending p; the i-th smallest is compared with 0.05/(m - i), with m the family size; stop at the first
+  failure. Adjusted p-values are reported.
+- A pair that is not evaluable by the reach rule alone (`evaluability`: day lengths and ceilings, never an
+  estimate) leaves the family before any p-value is computed. Its test is not run at all, and the pair is logged
+  in `left` with its reason:
+  - P-V, P-R, P-F need a range from `select_range`;
+  - P-M needs at least 5 stocks with L <= rho N_s.
+- A pair that is evaluable but whose statistic turns out undefined stays in the family with p = 1. That covers,
+  for example, fewer than 5 P-M stocks after the min-runs rule, or zeta_K dropping a horizon.
+- This replaces the earlier per-tick-bin Choice. Only the combining step changed; the four tests are as before.
+
+### 3.1 psi-hat (decision of 31 Oct 2026)
+
+psi-hat is exactly the pre-registered definition (`psi_moments`, `psi_hat`):
+- per stock, take the quantile bins of run size over all its study days (R2-clipped sizes);
+- in each bin, E[Delta_1 eps | q-bin] is the mean of eps_n (lm_{n+1} - lm_n) over steps with ok at n and
+  n + 1 inside a day;
+- the stock's psi is the OLS slope of log E[Delta_1 eps | q-bin] on log(median q of the bin), over the bins;
+- the tick bin's psi-hat pools the stocks: the equal-weight mean of the stocks' slopes. Replicates carry their
+  own day and stock weights.
+
+**How it differs from the earlier version.** The earlier psi-hat (Choice, now removed) had four differences:
+- it used deciles within each stock-day, not per stock;
+- it regressed the binned response on c0 + c1 mean (q/gm)^psi, which allowed an additive constant;
+- it did not take logs;
+- it fitted one psi common to all stocks, by minimising the summed 1 - R^2 over a grid.
+
+**Choices left inside the definition:**
+- 10 bins (the definition fixes quantile bins but not how many);
+- ties go to the lower bin;
+- the bin edges and medians are fixed per stock from all its days and held fixed across replicates, so only E
+  is re-weighted;
+- a stock with a bin whose E is not positive has no slope (log undefined) and is left out. The number of stocks
+  with a slope is reported as `psi_n_stocks`.
 
 **Descriptive.** P-K is reported as the slope difference vk_diff with its interval. P-C has no definition in
 the repo; see section 6.
@@ -252,21 +293,34 @@ the repo; see section 6.
 | k-tilde with slope in a exactly 0 | P-F p = 1 on both ranges, interval contains 0 |
 | zeta_K rising or falling in a by 0.05 | P-F p < 0.01 both ways |
 | size-binned kernels beta = (0.6, 0.2, -0.3) | beta-hat (0.62, 0.20, -0.30); p_slope 9e-5, p_top 2e-5; both conditions hold |
-| G0 flow, psi = 0.5 | psi-hat 0.50 [0.47, 0.54] |
+| iid signs, permanent impact eps q^psi (E[Delta_1 eps \| q] = q^psi), 8 stocks x 4 days x 4000 runs | psi-hat 0.314 for psi = 0.3, 0.628 for psi = 0.6 (within 0.03, the check's tolerance); the small upward bias comes from evaluating log E[q^psi] at the bin median |
+| G0 flow (psi = 0.5, sign memory, transient kernel), 10 x 6 x 1500 | psi-hat 0.537 (reported, not checked: the past runs' decaying impact adds a q-independent term) |
+| one Holm family, one p = 0.01 per tick bin, rest 0.5 | nothing rejected (0.01 > 0.05/12); per-bin Holm would reject three |
+| two pairs below the reach, p = 0.0048 elsewhere | family of 10, 0.0048 <= 0.005 rejected; kept with p = 1 (m = 12) it would not be |
+| an evaluable pair with p = 1 | stays: family of 12, so 0.0045 > 0.05/12 is not rejected |
+| run_primary on Q-T3 (3 cells) + Q-T2S3 (200-run days), no Q-T1 cell | family of 7: Q-T3 x 4, Q-T2 P-V/P-R/P-F on [4,32]; P-M of Q-T2 and all of Q-T1 left, with reasons; Q-T2's P-M never computed |
 
 ## 5. Tests and planted bugs
 
-`tools/est/test_3d1.py` has 27 checks and 19 planted bugs. Each mutant was also run outside pytest:
-- 18 fail their check on an assertion;
-- "descriptive cells pooled into the tick bin" is caught one layer earlier, by `make_unit`'s guard (ValueError:
-  "Q-T1S3 is not a confirmatory cell") raised inside the check.
+`tools/est/test_3d1.py` has 31 checks and 23 planted bugs. Each mutant was also run outside pytest:
+- 20 fail their check on an assertion;
+- three are caught one layer earlier, by a guard raised inside the check:
+  - "descriptive cells pooled into the tick bin": `make_unit`'s guard (ValueError: "Q-T1S3 is not a
+    confirmatory cell");
+  - the two "evaluability after the p-value" mutants: `combine`'s refusal of a p-value for a pair outside the
+    family (ValueError: "p-values given for pairs outside the family"). That refusal is how "leaves before any
+    p-value is computed" is enforced.
 
 | planted bug | mutated function | caught by |
 |---|---|---|
 | Holm sorted descending | `holm` | check_holm_order |
 | Holm as plain Bonferroni | `holm` | check_holm_order (P-F at 0.015: Holm 0.0167 rejects, Bonferroni 0.0125 does not) |
 | Holm not stopping at the first failure | `holm` | check_holm_order (P-V at 0.04 must stay unrejected) |
-| Holm accepting a family other than the four | `holm` | check_holm_exactly_four (P-K or P-C added, P-M missing) |
+| Holm accepting a member that is not a (primary test, tick bin) pair | `holm` | check_holm_family_keys (P-K, P-C, bare name, unknown tick bin) |
+| Holm per tick bin instead of one family | `combine` | check_one_family_across_bins |
+| non-evaluable pair kept in the family with p = 1 | `combine` | check_nonevaluable_leaves_family |
+| evaluability decided from the computed p-value | `combine` | check_evaluability_reach_only (combine's guard) |
+| every test computed before evaluability is applied | `run_primary` | check_run_primary (combine's guard) |
 | fallback range picked by the smaller p | `_assemble` | check_fallback_never_by_result |
 | [8, 64] used whatever its reach | `select_range` | check_fallback_by_reach |
 | descriptive cells pooled into the tick bin | `tick_bin_unit` | check_descriptive_excluded (make_unit's guard) |
@@ -285,10 +339,10 @@ the repo; see section 6.
 
 Other checks: config table, the cell ceilings in a pooled tick bin, the M2 fit recovering its parameters,
 leave-one-day-out choosing the true model, vertex = `pooled.core2`'s a*, P-M parameter validation and the
-min-runs and ceiling rules, and the structure of a whole unit run.
+min-runs and ceiling rules, the whole primary run (family, log of pairs that left), and psi-hat's known answer.
 
-Full suite (`uv run --group dev --group analysis pytest`): 390 passed, 28 skipped (was 344 passed). The new
-file runs in about 4 s.
+Full suite (`uv run --group dev --group analysis pytest`): 398 passed, 28 skipped (was 344 passed before
+Phase 3d-1). The new file runs in about 4 s.
 
 ## 6. Open (not decided here)
 
@@ -299,6 +353,7 @@ file runs in about 4 s.
 - **P-M bins on real sizes.** With a mass of runs at one size (round lots), quantile edges coincide; ties go to
   the lower bin, and min_runs_per_bin then drops the stock-day. Phase 3d-2 should look at bin occupancy when it
   chooses n_bins and min_runs_per_bin.
-- **Proposition 1** is not in the repo or in either Maitrier and Bouchaud paper. psi-hat is the size exponent of
-  the immediate signed response, the psi of the generators' q^psi impact. On G0 it recovers 0.5.
+- **Proposition 1** is not in the repo or in either Maitrier and Bouchaud paper. psi-hat follows the
+  pre-registered definition (section 3.1). Under sign memory with a decaying kernel (G0), past runs add a
+  q-independent term to E[Delta_1 eps | q], and psi-hat reads 0.537 against a true 0.5.
 - **Compute cost** at confirmation tick-bin sizes, with N_SUR = 4 and B = 200, is not measured.

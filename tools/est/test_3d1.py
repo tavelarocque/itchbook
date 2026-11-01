@@ -164,29 +164,92 @@ def check_p_value_conservative():
 # ---- Holm ----------------------------------------------------------------------------------------------------
 
 
+def fam(ps: dict, tb: str = "Q-T1") -> dict:
+    return {(k, tb): v for k, v in ps.items()}
+
+
+def all_ev(left=()) -> dict:
+    """Evaluability of the 12 pairs, every pair evaluable except those in left."""
+    return {tb: {t: {"evaluable": (t, tb) not in left, "reason": "reach" if (t, tb) not in left else "below reach"}
+                 for t in C.PRIMARY_TESTS} for tb in C.TICK_BINS}
+
+
 def check_holm_order():
     """Ascending p against 0.05/4, 0.05/3, 0.05/2, 0.05, stopping at the first failure: P-R (0.001) and P-F
     (0.015 <= 0.0167, above the Bonferroni 0.0125) are rejected; P-M (0.03 > 0.025) stops, so P-V (0.04)
     is not rejected although 0.04 <= 0.05."""
-    h = P.holm({"P-V": 0.04, "P-R": 0.001, "P-M": 0.03, "P-F": 0.015})
-    assert [k for k in C.PRIMARY_TESTS if h[k]["rejected"]] == ["P-R", "P-F"]
-    assert [h[k]["rank"] for k in ("P-R", "P-F", "P-M", "P-V")] == [1, 2, 3, 4]
-    assert np.isclose(h["P-F"]["threshold"], 0.05 / 3) and np.isclose(h["P-V"]["threshold"], 0.05)
-    assert np.allclose([h[k]["p_adj"] for k in ("P-R", "P-F", "P-M", "P-V")], [0.004, 0.045, 0.06, 0.06])
+    h = P.holm(fam({"P-V": 0.04, "P-R": 0.001, "P-M": 0.03, "P-F": 0.015}))
+    assert [k for k in C.PRIMARY_TESTS if h[(k, "Q-T1")]["rejected"]] == ["P-R", "P-F"]
+    assert [h[(k, "Q-T1")]["rank"] for k in ("P-R", "P-F", "P-M", "P-V")] == [1, 2, 3, 4]
+    assert np.isclose(h[("P-F", "Q-T1")]["threshold"], 0.05 / 3) and np.isclose(h[("P-V", "Q-T1")]["threshold"], 0.05)
+    assert np.allclose([h[(k, "Q-T1")]["p_adj"] for k in ("P-R", "P-F", "P-M", "P-V")], [0.004, 0.045, 0.06, 0.06])
 
 
-def check_holm_exactly_four():
-    """Holm refuses any family other than exactly P-V, P-R, P-M, P-F (P-K and P-C never enter); NaN is 1."""
-    four = {"P-V": 0.01, "P-R": 0.01, "P-M": 0.01, "P-F": 0.01}
-    for bad in ({**four, "P-K": 0.001}, {**four, "P-C": 0.001}, {k: v for k, v in four.items() if k != "P-M"},
-                {"P-V": 0.01, "P-R": 0.01, "P-M": 0.01, "P-C": 0.01}):
+def check_holm_family_keys():
+    """Members must be (primary test, tick bin) pairs: P-K, P-C, a bare test name or an unknown tick bin raise;
+    NaN is 1."""
+    four = fam({"P-V": 0.01, "P-R": 0.01, "P-M": 0.01, "P-F": 0.01})
+    for bad in ({**four, ("P-K", "Q-T1"): 0.001}, {**four, ("P-C", "Q-T2"): 0.001}, {**four, "P-V": 0.001},
+                {**four, ("P-V", "Q-T4"): 0.001}):
         try:
             P.holm(bad)
         except ValueError:
             continue
-        raise AssertionError(f"Holm accepted the family {sorted(bad)}")
-    h = P.holm({**four, "P-V": np.nan})
-    assert h["P-V"]["p"] == 1.0 and not h["P-V"]["rejected"]
+        raise AssertionError(f"Holm accepted the family {list(bad)}")
+    h = P.holm({**four, ("P-V", "Q-T1"): np.nan})
+    assert h[("P-V", "Q-T1")]["p"] == 1.0 and not h[("P-V", "Q-T1")]["rejected"]
+
+
+def check_one_family_across_bins():
+    """One Holm family over the 12 pairs: one p = 0.01 per tick bin, the rest 0.5, rejects nothing
+    (0.01 > 0.05/12), where per-tick-bin Holm (0.01 <= 0.05/4) would reject three."""
+    ps = {(t, tb): (0.01 if t == "P-F" else 0.5) for tb in C.TICK_BINS for t in C.PRIMARY_TESTS}
+    out = P.combine(all_ev(), ps)
+    assert len(out["family"]) == 12 and out["left"] == []
+    assert not any(r["rejected"] for r in out["holm"].values())
+    assert np.isclose(out["holm"][("P-F", "Q-T1")]["threshold"], 0.05 / 12)
+    ps[("P-F", "Q-T2")] = 0.004  # <= 0.05/12: rejected, then 0.01 > 0.05/11 stops
+    out = P.combine(all_ev(), ps)
+    assert [k for k, r in out["holm"].items() if r["rejected"]] == [("P-F", "Q-T2")]
+
+
+def check_nonevaluable_leaves_family():
+    """Two pairs below the reach leave the family before any p-value (m = 10, logged with their reason):
+    p = 0.0048 <= 0.05/10 is rejected; kept with p = 1 (m = 12, 0.05/12 = 0.0042) it would not be. A p-value
+    supplied for a pair that left is refused."""
+    left = (("P-M", "Q-T2"), ("P-V", "Q-T2"))
+    ev = all_ev(left)
+    ps = {(t, tb): 0.5 for tb in C.TICK_BINS for t in C.PRIMARY_TESTS if (t, tb) not in left}
+    ps[("P-R", "Q-T3")] = 0.0048
+    out = P.combine(ev, ps)
+    assert len(out["family"]) == 10 and out["holm"][("P-R", "Q-T3")]["rejected"]
+    assert {(r["test"], r["tick_bin"]) for r in out["left"]} == set(left)
+    assert all(r["reason"] == "below reach" for r in out["left"]) and not set(left) & set(out["holm"])
+    try:
+        P.combine(ev, {**ps, ("P-M", "Q-T2"): 1.0})
+    except ValueError:
+        return
+    raise AssertionError("a p-value for a pair outside the family was accepted")
+
+
+def check_evaluability_reach_only():
+    """Evaluability comes from day lengths and ceilings alone: an evaluable pair whose statistic turned out
+    undefined (p = 1) stays in the family, so m = 12 and 0.0045 > 0.05/12 is not rejected. The evaluability
+    function sees only Ns, rho and the P-M parameters; P-M needs MIN_REACH stocks with L <= rho N_s."""
+    import inspect
+
+    ps = {(t, tb): 0.5 for tb in C.TICK_BINS for t in C.PRIMARY_TESTS}
+    ps[("P-M", "Q-T1")], ps[("P-F", "Q-T3")] = 1.0, 0.0045
+    out = P.combine(all_ev(), ps)
+    assert len(out["family"]) == 12 and not out["holm"][("P-F", "Q-T3")]["rejected"]
+    assert list(inspect.signature(P.evaluability).parameters) == ["Ns", "rho", "pm"]
+    rho = np.full(6, 0.2)
+    e = P.evaluability(np.array([640] * 5 + [100]), rho, PM)  # 640 / 5 = 128 = L
+    assert e["P-M"]["evaluable"] and e["P-V"]["evaluable"] and e["P-F"]["evaluable"]
+    e = P.evaluability(np.array([640] * 4 + [320, 100]), rho, PM)
+    assert not e["P-M"]["evaluable"] and e["P-R"]["evaluable"] and "4 stocks reach L" in e["P-M"]["reason"]
+    e = P.evaluability(np.array([100] * 6), rho, PM)
+    assert not any(v["evaluable"] for v in e.values())
 
 
 def check_passed_needs_conditions():
@@ -194,7 +257,7 @@ def check_passed_needs_conditions():
     mk = lambda n, p, ok: P.TestResult(n, p, "x", {"c1": True, "c2": ok}, {}, (8, 64), "", {}, {})  # noqa: E731
     res = {"P-V": mk("P-V", 0.001, False), "P-R": mk("P-R", 0.001, True), "P-M": mk("P-M", 0.9, True),
            "P-F": mk("P-F", 0.002, True)}
-    P.apply_holm(res)
+    P.set_decisions({"Q-T1": {"tests": res}}, P.holm(fam({k: v.p for k, v in res.items()})))
     assert res["P-V"].rejected and not res["P-V"].passed
     assert res["P-R"].passed and res["P-F"].passed and not res["P-M"].passed
 
@@ -327,7 +390,6 @@ def check_pv_null_independent_sizes():
     st = t.statistic
     assert not (t.conditions["ii_S1_negative"] or t.conditions["ii_S2_negative"]), st
     assert min(st["p_S1"], st["p_S2"]) > 0.05, st
-    assert not t.passed
 
 
 def dependent_flow(S, D, N, seed) -> P.Flow:
@@ -439,30 +501,62 @@ def check_pm_params_and_min_runs():
 # ---- the whole unit -------------------------------------------------------------------------------------------------
 
 
-def check_run_unit_structure():
-    """Every primary test reports its p, sub-conditions, range used and both ranges; Holm sees exactly four;
-    P-K is descriptive; psi-hat finds G0's psi = 0.5."""
-    flows = {"Q-T3S1": g0_flow(6, 4, 1500, 21), "Q-T3S2": g0_flow(4, 4, 1500, 22)}
-    res = P.run_tick_bin(flows, "Q-T3", PM, np.random.default_rng(3), n_boot=30, n_sur=1)
-    assert set(res["tests"]) == set(C.PRIMARY_TESTS) and set(res["holm"]) == set(C.PRIMARY_TESTS)
-    assert "P-K" in res["descriptive"] and "P-K" not in res["holm"]
-    for k in ("P-V", "P-R", "P-F"):
-        t = res["tests"][k]
-        assert t.range_used == (8, 64) and set(t.by_range) == {"[4,32]", "[8,64]"} and t.conditions
-        assert 0.0 <= t.p <= 1.0 and t.passed == bool(t.rejected and t.all_conditions)
-    sec = res["tests"]["P-R"].secondary
-    assert abs(sec["psi_hat"]["estimate"] - 0.5) <= 0.05, sec["psi_hat"]
-    assert {"Rratio_minus_exp_sig2_over_8", "dastar_dlogT", "sigma_l2"} <= set(sec)
+def check_run_primary():
+    """End to end: Q-T3 (three cells, long days) has every test evaluable; Q-T2 (Q-T2S3 alone, 200-run days)
+    reaches [4, 32] only and not L = 128, so P-M of Q-T2 leaves the family before it is computed; Q-T1 has no
+    cell in the input and leaves whole. Holm sees exactly the 7 evaluable pairs; P-K is descriptive."""
+    flows = {"Q-T3S1": g0_flow(6, 4, 1500, 21), "Q-T3S2": g0_flow(4, 4, 1500, 22), "Q-T3S3": g0_flow(3, 4, 1500, 23),
+             "Q-T2S3": g0_flow(6, 4, 200, 24)}
+    res = P.run_primary(flows, PM, np.random.default_rng(3), n_boot=30, n_sur=1)
+    fam_ = {(t, "Q-T3") for t in C.PRIMARY_TESTS} | {(t, "Q-T2") for t in ("P-V", "P-R", "P-F")}
+    assert set(res["family"]) == fam_ and set(res["holm"]) == fam_
+    left = {(r["test"], r["tick_bin"]): r["reason"] for r in res["left"]}
+    assert set(left) == {("P-M", "Q-T2")} | {(t, "Q-T1") for t in C.PRIMARY_TESTS}
+    assert "stocks reach L" in left[("P-M", "Q-T2")] and "no confirmatory cell" in left[("P-V", "Q-T1")]
+    assert "P-M" not in res["by_tick_bin"]["Q-T2"]["tests"] and "Q-T1" not in res["by_tick_bin"]
+    assert res["by_tick_bin"]["Q-T2"]["tests"]["P-F"].range_used == (4, 32)
+    for tb, tests in (("Q-T3", C.PRIMARY_TESTS), ("Q-T2", ("P-V", "P-R", "P-F"))):
+        assert "P-K" in res["by_tick_bin"][tb]["descriptive"]
+        for k in tests:
+            t = res["by_tick_bin"][tb]["tests"][k]
+            assert 0.0 <= t.p <= 1.0 and t.rejected is not None and t.passed == bool(t.rejected and t.all_conditions)
+    t = res["by_tick_bin"]["Q-T3"]["tests"]["P-R"]
+    assert set(t.by_range) == {"[4,32]", "[8,64]"} and t.range_used == (8, 64)
+    assert {"Rratio_minus_exp_sig2_over_8", "dastar_dlogT", "sigma_l2", "psi_hat"} <= set(t.secondary)
+
+
+def psi_flow(psi, S=8, D=4, N=4000, seed=0) -> P.Flow:
+    """iid signs, permanent impact eps q^psi: E[Delta_1 eps | q] = q^psi exactly (plus zero-mean noise)."""
+    rng = np.random.default_rng(seed)
+    n = S * D * N
+    eps = np.where(rng.random(n) < 0.5, 1.0, -1.0)
+    q = np.exp(3 + rng.standard_normal(n))
+    x = eps * q**psi + 0.5 * rng.standard_normal(n)
+    lm = np.concatenate([[0.0], np.cumsum(x)[:-1]])  # the mid read just before run n
+    return make_flow(eps, q, lm, np.full((S, D), N))
+
+
+def check_psi_known_answer():
+    """psi-hat (per stock OLS slope of log E[Delta_1 eps | q-bin] on log median q of the bin, mean over
+    stocks) recovers psi = 0.3 and 0.6 within 0.03 when E[Delta_1 eps | q] = q^psi."""
+    for psi in (0.3, 0.6):
+        f = psi_flow(psi)
+        mo = P.psi_moments(f)
+        S_ = f.n_stocks
+        est, n = P.psi_hat(mo, np.ones((1, f.n_days)), np.ones((1, S_)), f.n_days)
+        assert abs(est[0] - psi) < 0.03 and n[0] == S_, (psi, est, n)
 
 
 CHECKS = {f.__name__: f for f in [
     check_config_table, check_descriptive_excluded, check_cell_ceilings, check_r2_clip, check_fallback_by_reach,
     check_fallback_never_by_result, check_interval_matches_intervals3, check_p_value_conservative,
-    check_holm_order, check_holm_exactly_four, check_passed_needs_conditions, check_pf_flat_not_rejected,
+    check_holm_order, check_holm_family_keys, check_one_family_across_bins, check_nonevaluable_leaves_family,
+    check_evaluability_reach_only, check_passed_needs_conditions, check_pf_flat_not_rejected,
     check_pf_two_sided, check_vertex_matches_core2, check_pr_eq74_known_answer, check_pr_uses_both_ends,
     check_m3_is_shuffle_expectation, check_m2_fit_recovers, check_loo_prefers_true_model,
     check_pv_null_independent_sizes, check_pv_ii_detects_dependence, check_pv_both_surrogates, check_pv_gate,
-    check_pm_recovers_beta, check_pm_both_required, check_pm_params_and_min_runs, check_run_unit_structure,
+    check_pm_recovers_beta, check_pm_both_required, check_pm_params_and_min_runs, check_run_primary,
+    check_psi_known_answer,
 ]}
 
 
@@ -485,9 +579,24 @@ BUGS = [
         'order = np.argsort(-p, kind="stable")', ("check_holm_order",)),
     Bug("Holm as plain Bonferroni", P, "holm", "thr = alpha / (m - i)", "thr = alpha / m", ("check_holm_order",)),
     Bug("Holm not stopping at the first failure", P, "holm", "stop = True", "stop = False", ("check_holm_order",)),
-    Bug("Holm accepting a family other than the four", P, "holm",
-        "if len(pvals) != len(C.PRIMARY_TESTS) or set(pvals) != set(C.PRIMARY_TESTS):", "if False:",
-        ("check_holm_exactly_four",)),
+    Bug("Holm accepting a member that is not a (primary test, tick bin) pair", P, "holm",
+        "if not (isinstance(k, tuple) and len(k) == 2 and k[0] in C.PRIMARY_TESTS and k[1] in C.TICK_BINS):",
+        "if False:", ("check_holm_family_keys",)),
+    Bug("Holm per tick bin instead of one family", P, "combine", "h = holm({k: pvals[k] for k in members}, alpha)",
+        "h = {k: v for b in {x[1] for x in members} for k, v in "
+        "holm({k: pvals[k] for k in members if k[1] == b}, alpha).items()}",
+        ("check_one_family_across_bins",)),
+    Bug("non-evaluable pair kept in the family with p = 1", P, "combine",
+        "h = holm({k: pvals[k] for k in members}, alpha)",
+        "h = holm({**{k: 1.0 for k in pairs}, **{k: pvals[k] for k in members}}, alpha)",
+        ("check_nonevaluable_leaves_family",)),
+    Bug("evaluability decided from the computed p-value", P, "combine",
+        'members = [k for k in pairs if ev[k[1]][k[0]]["evaluable"]]',
+        "members = [k for k in pairs if k in pvals and pvals[k] < 1]",
+        ("check_evaluability_reach_only",)),
+    Bug("every test computed before evaluability is applied", P, "run_primary",
+        'tests=tuple(t for t in C.PRIMARY_TESTS if ev[tb][t]["evaluable"])', "tests=C.PRIMARY_TESTS",
+        ("check_run_primary",)),
     Bug("fallback range picked by the smaller p", P, "_assemble", "d = by_r[r_used]",
         'd = min(by_r.values(), key=lambda v: v["p"])', ("check_fallback_never_by_result",)),
     Bug("[8, 64] used whatever its reach", P, "select_range", "if by[C.PRIMARY_RANGE] >= PO.MIN_REACH:",

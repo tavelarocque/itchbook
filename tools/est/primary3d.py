@@ -20,13 +20,20 @@ methods' p-values, the conservative counterpart of the widest interval. Percenti
 replicates on the null side (two-sided: twice the smaller share). Jackknife: Student t at D - 1 df. An
 undefined estimate has p = 1.
 
-The tests (each returns a TestResult; Holm then sets rejected and passed):
+Family (run_primary, decided 31 Oct 2026): ONE Holm family at family-wise 0.05 over the (test, tick bin)
+pairs, up to 4 x 3 = 12. A pair that is not evaluable by the reach rule alone (evaluability: day lengths and
+ceilings, never an estimate) leaves the family before any p-value is computed (it is not computed at all) and
+is logged with its reason. A pair that is evaluable but whose statistic turns out undefined stays, p = 1.
+
+The tests (each returns a TestResult; run_primary's Holm then sets rejected and passed):
   P-V  (i) leave-one-day-out model comparison on log v_a(T): M2 must beat M1 and M3. (ii) the slope in a,
        over a below M2's fitted a_c, of zeta_V(a) real minus surrogate is negative, for S1 and for S2.
        p = max(p_S1, p_S2) when (i) holds, else 1 (CHOICE: (i) is a gate without a p-value).
   P-R  equivalence: a*(T1) and a*(T2) of the range used both within 1/2 +- 0.15 (TOST at each end;
        intersection-union, p = the larger end's TOST p). Secondary: R_{1/2}/R_0 against e^{sigma_l^2/8},
-       psi-hat, and da*/dlog T with a two-sided interval.
+       psi-hat (pre-registered: per stock, the OLS slope of log E[Delta_1 eps | q-bin] on log median q of the
+       bin over quantile bins of run size; equal-weight mean over the unit's stocks), and da*/dlog T with a
+       two-sided interval.
   P-M  size-binned trade-level propagator: the slope of beta-hat on log q over bins is negative (one-sided)
        AND the top bin's beta-hat has its upper bound below 0. p = max of the two one-sided p-values.
   P-F  the slope of zeta_K(a) on a over [0, 1]: two-sided against 0. zeta_K levels reported, not tested.
@@ -50,8 +57,7 @@ KW = dict(T_grid=C.T_GRID, a_grid=C.A_GRID, ranges=C.RANGES, a_max=C.A_MAX)
 RANGE_NAMES = tuple(f"[{lo},{hi}]" for lo, hi in C.RANGES)
 CHUNK = 50
 N_SUR = 4  # CHOICE: surrogate draws per surrogate kind, zeta_V averaged over them
-PSI_BINS = 10  # CHOICE: deciles of run size for psi-hat
-PSI_GRID = np.round(np.arange(0.0, 1.5001, 0.01), 2)
+PSI_BINS = 10  # CHOICE: psi-hat over deciles of run size (the definition fixes quantile bins, not how many)
 PM_L_MIN = 1  # CHOICE: the propagator fit starts at lag 1
 PM_BETAS = np.round(np.arange(-1.0, 1.5001, 0.01), 2)  # CHOICE: propagator.fit_power's form, beta < 0 allowed
 PM_L0S = np.logspace(-1, 2.5, 71)  # propagator.fit_power's grid
@@ -316,7 +322,7 @@ class TestResult:
     stocks_used: dict
     by_range: dict = field(default_factory=dict)  # both ranges, reported
     secondary: dict = field(default_factory=dict)  # reported only, never in Holm
-    rejected: bool | None = None  # set by apply_holm
+    rejected: bool | None = None  # set by run_primary (one Holm family)
     passed: bool | None = None
 
     @property
@@ -325,11 +331,14 @@ class TestResult:
 
 
 def holm(pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
-    """Holm-Bonferroni over EXACTLY the four primary tests. Ascending p; the i-th smallest (i = 0..3) is
-    compared with alpha / (4 - i); stop at the first that fails. A NaN p counts as 1."""
-    if len(pvals) != len(C.PRIMARY_TESTS) or set(pvals) != set(C.PRIMARY_TESTS):
-        raise ValueError(f"Holm takes exactly {C.PRIMARY_TESTS}, got {sorted(pvals)}")
-    names = list(C.PRIMARY_TESTS)
+    """Holm-Bonferroni over ONE family of (test, tick bin) pairs, tests among the four primary tests and tick
+    bins among prereg3d.TICK_BINS (so at most 12 members; P-K, P-C or a bare test name raise). Ascending p;
+    the i-th smallest (i = 0..m-1) is compared with alpha / (m - i); stop at the first that fails. A NaN p
+    counts as 1."""
+    for k in pvals:
+        if not (isinstance(k, tuple) and len(k) == 2 and k[0] in C.PRIMARY_TESTS and k[1] in C.TICK_BINS):
+            raise ValueError(f"Holm family members are (primary test, tick bin) pairs, got {k!r}")
+    names = list(pvals)
     p = np.array([1.0 if not np.isfinite(pvals[k]) else float(pvals[k]) for k in names])
     m = len(p)
     order = np.argsort(p, kind="stable")
@@ -348,12 +357,35 @@ def holm(pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
     return out
 
 
-def apply_holm(results: dict, alpha: float = C.ALPHA_FW) -> dict:
-    h = holm({k: results[k].p for k in C.PRIMARY_TESTS}, alpha)
-    for k in C.PRIMARY_TESTS:
-        results[k].rejected = h[k]["rejected"]
-        results[k].passed = bool(h[k]["rejected"] and results[k].all_conditions)
-    return h
+def evaluability(Ns: np.ndarray, rho: np.ndarray, pm: PMParams) -> dict:
+    """Whether each primary test is evaluable in a tick bin, by the reach rule ALONE (day lengths and
+    ceilings, never an estimate): P-V, P-R, P-F need a range from select_range; P-M needs at least
+    MIN_REACH stocks with L <= rho N_s. {test: {'evaluable': bool, 'reason': str}}."""
+    r, by = select_range(Ns, rho)
+    reach = ", ".join(f"[{lo},{hi}]: {by[(lo, hi)]} stocks at T2" for lo, hi in C.RANGES)
+    out = {t: {"evaluable": r is not None, "reason": f"{range_label(r)} ({reach})"} for t in ("P-V", "P-R", "P-F")}
+    n = int(np.sum(pm.L <= np.asarray(rho, dtype=float) * np.asarray(Ns, dtype=float)))
+    out["P-M"] = {"evaluable": n >= PO.MIN_REACH,
+                  "reason": f"{n} stocks reach L = {pm.L} under their ceilings (need {PO.MIN_REACH})"}
+    return {t: out[t] for t in C.PRIMARY_TESTS}
+
+
+def combine(ev: dict, pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
+    """The combining step: ONE Holm family across tick bins. ev {tick bin: evaluability(...)}, decided before
+    any p-value; a pair that is not evaluable leaves the family and is logged with its reason. pvals
+    {(test, tick bin): p} must hold exactly the evaluable pairs (a p-value for a pair that left means it
+    was computed, which is refused)."""
+    pairs = [(t, tb) for tb in ev for t in C.PRIMARY_TESTS]
+    members = [k for k in pairs if ev[k[1]][k[0]]["evaluable"]]
+    left = [{"test": t, "tick_bin": tb, "reason": ev[tb][t]["reason"]} for t, tb in pairs if (t, tb) not in members]
+    extra = sorted(set(pvals) - set(members))
+    if extra:
+        raise ValueError(f"p-values given for pairs outside the family: {extra}")
+    missing = [k for k in members if k not in pvals]
+    if missing:
+        raise ValueError(f"no p-value for family members {missing}")
+    h = holm({k: pvals[k] for k in members}, alpha)
+    return {"family": members, "left": left, "holm": h}
 
 
 # ---- decision layers (pure functions of replicates) ----------------------------------------------------------
@@ -446,48 +478,57 @@ def sig2_per_sd(flow: Flow) -> np.ndarray:
     return np.array([np.var(np.log(flow.q[flow.day(i)])) for i in range(len(flow.lengths))])
 
 
-def psi_moments(flow: Flow, n_bins: int = PSI_BINS, grid=PSI_GRID) -> tuple[np.ndarray, np.ndarray]:
-    """Per stock-day, over deciles of run size: y = mean eps_n (lm_{n+1} - lm_n) and X_g = mean (q / gm)^g,
-    gm the stock-day's geometric mean size; only steps with ok at both ends."""
-    y = np.full((len(flow.lengths), n_bins), np.nan)
-    X = np.full((len(flow.lengths), n_bins, len(grid)), np.nan)
-    for i in range(len(flow.lengths)):
-        s = flow.day(i)
-        e, q, lm, ok = flow.eps[s][:-1], flow.q[s][:-1], flow.lm[s], flow.ok[s]
-        v = ok[:-1] & ok[1:]
-        if v.sum() < 2 * n_bins:
+def psi_moments(flow: Flow, n_bins: int = PSI_BINS) -> dict:
+    """Inputs of psi-hat. Per stock, quantile bins of run size over all its study days (ties to the lower bin);
+    steps n with ok at n and n + 1 inside a day, Delta_1 = lm_{n+1} - lm_n. Returns ysum, cnt (n_sd, nb): per
+    stock-day and bin the sum of Delta_1 eps and the number of steps; lmed (S, nb): log of the bin's median
+    run size over the stock's days (fixed across replicates, CHOICE)."""
+    S_, D_ = flow.Nsd.shape
+    ysum = np.zeros((len(flow.lengths), n_bins))
+    cnt = np.zeros((len(flow.lengths), n_bins))
+    lmed = np.full((S_, n_bins), np.nan)
+    for s in range(S_):
+        days = []
+        for i in range(s * D_, (s + 1) * D_):
+            sl = flow.day(i)
+            ok = flow.ok[sl]
+            v = ok[:-1] & ok[1:]
+            days.append((i, flow.eps[sl][:-1][v], flow.q[sl][:-1][v], np.diff(flow.lm[sl])[v]))
+        qall = np.concatenate([d[2] for d in days])
+        if len(qall) < n_bins:
             continue
-        r = np.diff(lm)
-        e, q, r = e[v], q[v], r[v]
-        b = np.searchsorted(np.quantile(q, np.linspace(0, 1, n_bins + 1)[1:-1]), q, side="left")
-        gm = np.exp(np.mean(np.log(q)))
-        cnt = np.bincount(b, minlength=n_bins).astype(float)
-        if np.any(cnt == 0):
-            continue
-        y[i] = np.bincount(b, e * r, minlength=n_bins) / cnt
-        P = (q / gm)[:, None] ** np.asarray(grid)[None, :]
-        X[i] = np.stack([np.bincount(b, P[:, g], minlength=n_bins) for g in range(len(grid))], axis=1) / cnt[:, None]
-    return y, X
+        edges = np.quantile(qall, np.linspace(0, 1, n_bins + 1)[1:-1])
+        for i, e, q, r in days:
+            b = np.searchsorted(edges, q, side="left")
+            ysum[i] = np.bincount(b, e * r, minlength=n_bins)
+            cnt[i] = np.bincount(b, minlength=n_bins)
+        ball = np.searchsorted(edges, qall, side="left")
+        for k in range(n_bins):
+            if np.any(ball == k):
+                lmed[s, k] = np.log(np.median(qall[ball == k]))
+    return {"ysum": ysum, "cnt": cnt, "lmed": lmed}
 
 
-def psi_hat(y_sd, X_sd, Wd, Ws, n_days: int, grid=PSI_GRID) -> np.ndarray:
-    """CHOICE (psi-hat): common psi over stocks minimising the sum over stocks of 1 - R^2 of the stock's
-    day-averaged binned response on c0 + c1 X_psi (stock-specific c0, c1). (B,)"""
-    S_ = len(y_sd) // n_days
-    yb = PO._stock_mean(y_sd.reshape(S_, n_days, -1), Wd[:, None, :] * np.ones((S_, n_days))[None])
-    Xb = PO._stock_mean(X_sd.reshape(S_, n_days, *X_sd.shape[1:]), Wd[:, None, :] * np.ones((S_, n_days))[None])
-    yc = yb - yb.mean(axis=2, keepdims=True)  # (B, S, nb)
-    Xc = Xb - Xb.mean(axis=2, keepdims=True)  # (B, S, nb, ng)
+def psi_hat(pmo: dict, Wd, Ws, n_days: int) -> tuple[np.ndarray, np.ndarray]:
+    """psi-hat as pre-registered: per stock, the OLS slope of log E[Delta_1 eps | q-bin] on log(median q of
+    the bin) over the stock's quantile bins of run size, E under the replicate's day weights; pooled within
+    the unit as the equal-weight mean over stocks (replicate stock weights) of the stocks whose slope is
+    defined. CHOICE: a stock with a bin whose E is not positive (log undefined) has no slope and is left
+    out. Returns (psi (B,), number of stocks with a slope (B,))."""
+    S_ = len(pmo["lmed"])
+    ys = pmo["ysum"].reshape(S_, n_days, -1)
+    cs = pmo["cnt"].reshape(S_, n_days, -1)
     with np.errstate(invalid="ignore", divide="ignore"):
-        sxy = np.einsum("bsk,bskg->bsg", yc, Xc)
-        sxx = np.einsum("bskg,bskg->bsg", Xc, Xc)
-        tss = np.einsum("bsk,bsk->bs", yc, yc)
-        loss = np.where(sxx > 0, (tss[..., None] - sxy**2 / sxx) / tss[..., None], 1.0)  # 1 - R^2; psi = 0: flat
-    fin = np.isfinite(loss).all(axis=2) & (tss > 0)
-    w = Ws * fin
-    score = np.einsum("bs,bsg->bg", w, np.where(fin[..., None], loss, 0.0)) / w.sum(axis=1, keepdims=True)
-    out = np.asarray(grid)[np.argmin(np.where(np.isfinite(score), score, np.inf), axis=1)]
-    return np.where(np.isfinite(score).any(axis=1), out, np.nan)
+        E = np.einsum("bd,sdk->bsk", Wd, ys) / np.einsum("bd,sdk->bsk", Wd, cs)
+        logE = np.where(E > 0, np.log(np.where(E > 0, E, 1.0)), np.nan)
+        xc = pmo["lmed"] - pmo["lmed"].mean(axis=1, keepdims=True)
+        w = xc / np.sum(xc * xc, axis=1, keepdims=True)
+    slope = np.einsum("bsk,sk->bs", logE, w)
+    fin = np.isfinite(slope)
+    ws = Ws * fin
+    with np.errstate(invalid="ignore", divide="ignore"):
+        psi = np.sum(ws * np.where(fin, slope, 0.0), axis=1) / ws.sum(axis=1)
+    return psi, fin.sum(axis=1).astype(float)
 
 
 # ---- P-V (i): the three models ---------------------------------------------------------------------------------
@@ -735,9 +776,13 @@ def _empty(name: str, alternative: str, conditions: tuple, range_used, by) -> Te
 
 
 def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_BOOT, n_sur: int = N_SUR,
-             chunk: int = CHUNK) -> dict:
-    """The four primary tests on one pooling unit, with Holm over exactly those four. Returns
-    {'tests': {name: TestResult}, 'holm': ..., 'descriptive': {...}, 'unit': {...}}."""
+             chunk: int = CHUNK, tests: tuple = C.PRIMARY_TESTS) -> dict:
+    """The requested primary tests on one pooling unit (only those are computed), without Holm: Holm runs
+    once over the whole family in run_primary. Returns {'tests': {name: TestResult}, 'descriptive': {...},
+    'unit': {...}}; rejected and passed stay None here."""
+    want = set(tests)
+    if not want <= set(C.PRIMARY_TESTS):
+        raise ValueError(f"unknown tests {sorted(want - set(C.PRIMARY_TESTS))}")
     S_, D_ = u.flow.Nsd.shape
     r_used, by = select_range(u.Ns, u.rho)
     top = stocks_at_top(u.Ns, u.rho)
@@ -762,9 +807,9 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
             pv_i[r]["M2_fit_all_days"] = {k: m2[k] for k in ("mu_m", "lambda_sigma2", "a_c", "k_below")}
         else:
             kbelow[r] = None
-    sur = {k: surrogate_raws(u, k, n_sur, rng) for k in ("S1", "S2")}
+    sur = {k: surrogate_raws(u, k, n_sur, rng) for k in ("S1", "S2")} if "P-V" in want else {}
     sig2_sd = sig2_per_sd(u.flow)
-    psi_y, psi_X = psi_moments(u.flow)
+    psi_mom = psi_moments(u.flow)
     i1 = {r: _range_idx(r) for r in C.RANGES}
 
     def stat(Wd, Ws):
@@ -784,7 +829,7 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
         s2 = _pooled(sig2_sd, Wd, Ws, D_)
         out["sig2"] = s2
         out["Rratio_minus_target"] = out["Rratio"] - np.exp(s2 / 8)[:, None]
-        out["psi"] = psi_hat(psi_y, psi_X, Wd, Ws, D_)
+        out["psi"], out["psi_n_stocks"] = psi_hat(psi_mom, Wd, Ws, D_)
         for kind, raws in sur.items():
             zs = np.mean([PO.core2(rw, Wd, Ws, u.specs, "tilde", **KW)["zeta_V"][..., 0] for rw in raws], axis=0)
             d = out["zeta_V"] - zs  # (B, na, nr)
@@ -796,19 +841,40 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
             out[f"pv_slope_{kind}"] = snap(sl)
         return out
 
-    reps = run_stats(stat, dr, chunk)
-    mom = pm_moments(u.flow, u.rho, pm)
-    pm_reps = run_stats(lambda Wd, Ws: pm_stats(mom, pm, D_, Wd, Ws), dr, max(1, chunk // 5))
-    pm_stocks = np.flatnonzero(mom["used"].reshape(S_, D_).any(axis=1))
+    out = {"tests": {}, "descriptive": {},
+           "unit": {"name": u.name, "cells": sorted(set(u.cells)), "excluded_cells": list(u.excluded_cells),
+                    "n_stocks": S_, "n_days": D_, "pm_params": pm, "computed": [t for t in C.PRIMARY_TESTS
+                                                                                 if t in want]}}
+    tests = out["tests"]
+    if want & {"P-V", "P-R", "P-F"}:
+        _range_tests(u, want, reps_fn=lambda: run_stats(stat, dr, chunk), pv_i=pv_i, r_used=r_used, by=by,
+                     top=top, ir=ir, out=out)
+    if "P-M" in want:
+        _pm_test(u, pm, dr, chunk, by, tests)
+    return out
 
-    tests = {}
-    # P-F
+
+def _range_tests(u, want, reps_fn, pv_i, r_used, by, top, ir, out) -> None:
+    tests = out["tests"]
+    reps = reps_fn()
+    if "P-F" in want:
+        _pf(reps, ir, r_used, by, top, tests)
+    if "P-R" in want:
+        _pr(reps, ir, r_used, by, top, tests)
+    if "P-V" in want:
+        _pv(reps, pv_i, ir, r_used, by, top, tests)
+    out["descriptive"] = {"P-K": {RANGE_NAMES[j]: summary(reps["vk_diff"][j]) for j in range(len(C.RANGES))}}
+
+
+def _pf(reps, ir, r_used, by, top, tests) -> None:
     by_r = {}
     for r, j in ir.items():
         d = decide_pf(reps["pf"][j])
         by_r[r] = {**d, "pf": summary(reps["pf"][j]), "zeta_K_levels": summary(reps["zeta_K"][:, j])}
     tests["P-F"] = _assemble("P-F", by_r, r_used, by, top, ("interval_excludes_0",))
-    # P-R
+
+
+def _pr(reps, ir, r_used, by, top, tests) -> None:
     by_r = {}
     for r, j in ir.items():
         d = decide_pr(reps["a_star_ends"][j])
@@ -822,11 +888,14 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
                                          for j in range(len(C.RANGES))},
         "sigma_l2": summary(reps["sig2"]),
         "psi_hat": summary(reps["psi"]),
+        "psi_n_stocks": float(reps["psi_n_stocks"].est),
         "dastar_dlogT": {RANGE_NAMES[j]: {**summary(reps["dastar_dlogT"][j]),
                                           "p_two_sided": float(p_value(reps["dastar_dlogT"][j], 0.0, "two-sided"))}
                          for j in range(len(C.RANGES))},
     }
-    # P-V
+
+
+def _pv(reps, pv_i, ir, r_used, by, top, tests) -> None:
     by_r = {}
     for r, j in ir.items():
         d = decide_pv(pv_i[r], reps["pv_slope_S1"][j], reps["pv_slope_S2"][j])
@@ -834,7 +903,15 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
                    "slope_S2": summary(reps["pv_slope_S2"][j]), "zeta_V": summary(reps["zeta_V"][:, j])}
     tests["P-V"] = _assemble("P-V", by_r, r_used, by, top,
                              ("i_M2_beats_M1", "i_M2_beats_M3", "ii_S1_negative", "ii_S2_negative"))
-    # P-M (no T range: lags 1..l_max, kernels to L)
+
+
+def _pm_test(u, pm, dr, chunk, by, tests) -> None:
+    """P-M (no T range: lags 1..l_max, kernels to L). Fewer than MIN_REACH usable stocks after the min-runs
+    rule: the statistic is undefined, p = 1 (the pair stays in the family; evaluability is the reach rule's)."""
+    S_, D_ = u.flow.Nsd.shape
+    mom = pm_moments(u.flow, u.rho, pm)
+    pm_reps = run_stats(lambda Wd, Ws: pm_stats(mom, pm, D_, Wd, Ws), dr, max(1, chunk // 5))
+    pm_stocks = np.flatnonzero(mom["used"].reshape(S_, D_).any(axis=1))
     if len(pm_stocks) >= PO.MIN_REACH:
         d = decide_pm(pm_reps["slope"], pm_reps["top"])
         tests["P-M"] = TestResult("P-M", d["p"], d["alternative"], d["conditions"],
@@ -845,13 +922,9 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
                                   {"stocks": pm_stocks.tolist(), "stock_days": int(mom["used"].sum())})
     else:
         tests["P-M"] = _empty("P-M", "less (both)", ("slope_declines_with_log_q", "top_bin_upper_below_0"), None, by)
-        tests["P-M"].range_rule = f"not evaluable: {len(pm_stocks)} stocks reach L = {pm.L} under their ceilings"
+        tests["P-M"].range_rule = (f"statistic undefined: {len(pm_stocks)} stocks usable after the min-runs rule "
+                                   f"(need {PO.MIN_REACH})")
         tests["P-M"].stocks_used = {"stocks": pm_stocks.tolist(), "stock_days": int(mom["used"].sum())}
-    h = apply_holm(tests)
-    descriptive = {"P-K": {RANGE_NAMES[j]: summary(reps["vk_diff"][j]) for j in range(len(C.RANGES))}}
-    return {"tests": tests, "holm": h, "descriptive": descriptive,
-            "unit": {"name": u.name, "cells": sorted(set(u.cells)), "excluded_cells": list(u.excluded_cells),
-                     "n_stocks": S_, "n_days": D_, "pm_params": pm}}
 
 
 def _assemble(name, by_r: dict, r_used, by, top, conds) -> TestResult:
@@ -865,10 +938,37 @@ def _assemble(name, by_r: dict, r_used, by, top, conds) -> TestResult:
 
 
 def run_tick_bin(flows: dict, tb: str, pm: PMParams, rng: np.random.Generator, **kw) -> dict:
-    """Primary: the tick bin's confirmatory cells pooled; Holm over its four p-values."""
+    """One tick bin's tests (the confirmatory cells pooled), before the family's Holm (rejected/passed None)."""
     return run_unit(tick_bin_unit(flows, tb), pm, rng, **kw)
 
 
 def run_cell(flows: dict, cell: str, pm: PMParams, rng: np.random.Generator, **kw) -> dict:
-    """Secondary: one confirmatory cell alone (its Holm is reported, not a primary decision)."""
+    """Secondary: one confirmatory cell alone; never in the Holm family."""
     return run_unit(cell_unit(flows, cell), pm, rng, **kw)
+
+
+def run_primary(flows: dict, pm: PMParams, rng: np.random.Generator, **kw) -> dict:
+    """The primary analysis. For every tick bin: its unit, then evaluability by the reach rule alone, then
+    ONLY the evaluable tests are computed. One Holm family over all evaluable (test, tick bin) pairs at
+    family-wise 0.05; the pairs that left are logged with their reason. Sets rejected and passed."""
+    ev, out = {}, {}
+    for tb in C.TICK_BINS:
+        if not any(C.tick_bin(c) == tb and c in C.CONFIRMATORY for c in flows):
+            ev[tb] = {t: {"evaluable": False, "reason": "no confirmatory cell of the tick bin in the input"}
+                      for t in C.PRIMARY_TESTS}
+            continue
+        u = tick_bin_unit(flows, tb)
+        ev[tb] = evaluability(u.Ns, u.rho, pm)
+        out[tb] = run_unit(u, pm, rng, tests=tuple(t for t in C.PRIMARY_TESTS if ev[tb][t]["evaluable"]), **kw)
+    pvals = {(t, tb): out[tb]["tests"][t].p for tb in out for t in out[tb]["tests"]}
+    fam = combine(ev, pvals)
+    set_decisions(out, fam["holm"])
+    return {"by_tick_bin": out, "evaluability": ev, **fam}
+
+
+def set_decisions(by_tick_bin: dict, h: dict) -> None:
+    """rejected from the family's Holm; passed = rejected AND every sub-condition."""
+    for (t, tb), rec in h.items():
+        res = by_tick_bin[tb]["tests"][t]
+        res.rejected = rec["rejected"]
+        res.passed = bool(rec["rejected"] and res.all_conditions)
