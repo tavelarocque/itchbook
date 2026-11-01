@@ -12,6 +12,14 @@ Code: `tools/est/diag3d2b.py` (driver, resumable, one JSON per panel under
 Decisions recorded from your message: the m3_V fix is approved and recorded in `docs/phase3d_tests.md` section
 7.1 as a pre-freeze bug fix with its reason; the kappa grid {1, 4, 16} is approved.
 
+**Corrections (1 Nov 2026, after this report).**
+- P-R's a* was the least-squares quadratic over the primary a grid {0, 0.25, 0.5, 0.75, 1} (`C.A_GRID`,
+  `a_max = 1`), not over [0, 1.5]. The relevant sizes-only vertex is therefore the "vertex on [0, 1]" column
+  of section 4 (0.556 to 0.579). It matches the panels' a*(1) (0.57 to 0.58), so the gap that section 4 left
+  open does not exist. Option (b) of section 5 was already the estimator in use.
+- Nothing is frozen before the end of Phase 3, so the a* change of section 5 is a pre-freeze decision. It was
+  taken on 1 Nov 2026 as option (a); see `docs/phase3d_tests.md` 7.3.
+
 ## Headlines
 
 1. **Tie-aware bins make psi-hat and P-M usable on real sizes (Measurement; the rule is a Choice).** A psi-hat
@@ -26,9 +34,9 @@ Decisions recorded from your message: the m3_V fix is approved and recorded in `
    and a*(T) sits above Eq. 74's band at every T >= 2.
 4. **The a* bias is not sign memory (Measurement).** With signs shuffled within the day, a*(1) is still 0.57 to
    0.58 (psi = 0.5). The source is the a* estimator itself: a* is the vertex of a quadratic fitted to R(a)
-   over a in [0, 1.5]. On real within-day size distributions R(a) peaks at psi but falls more slowly to the
-   right than to the left. A sizes-only calculation puts the argmax at 0.51 and the quadratic vertex at 0.60
-   to 0.64.
+   over a in [0, 1] (corrected; first written as [0, 1.5]). On real within-day size distributions R(a) peaks
+   at psi but falls more slowly to the right than to the left. A sizes-only calculation puts the argmax at
+   0.51 and the quadratic vertex at 0.56 to 0.58.
 5. **Runtime (Measurement).** The diagnostic run took 114.4 min of wall time on 3 workers (6864 s; peak RSS of
    the parent 0.84 GB, workers about 0.2 GB each), inside the 2 h target. One long panel averaged 456 s. The
    code, tests and the sizes-only step were on top of that.
@@ -275,21 +283,22 @@ R(a) proportional to mean(qc^a q^psi) / sqrt(mean(qc^2a) mean(q^2psi))
 Here q is the raw size the response uses and qc is the R2-clipped size the estimator uses. By Cauchy-Schwarz
 this peaks at a = psi on every day. Pooled as `core2` pools it (Fisher z, stock means), on the exploration sizes:
 
-| tick bin | R(a) / R(0.5) at a = 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5 | argmax (fine grid) | quadratic vertex on [0, 1.5] (= a*) | vertex on [0, 1] |
+| tick bin | R(a) / R(0.5) at a = 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5 | argmax (fine grid) | quadratic vertex on [0, 1.5] | vertex on [0, 1] (= a* until 1 Nov 2026) |
 |---|---|---|---|---|
 | Q-T1 | 0.857, 0.972, 1, 0.983, 0.935, 0.869, 0.797 | 0.51 | 0.635 | 0.579 |
 | Q-T2 | 0.839, 0.969, 1, 0.979, 0.921, 0.842, 0.756 | 0.51 | 0.623 | 0.572 |
 | Q-T3 | 0.839, 0.964, 1, 0.974, 0.905, 0.816, 0.725 | 0.51 | 0.597 | 0.556 |
 
-The curve falls more slowly to the right of 0.5 than to the left. The quadratic fitted over [0, 1.5] (the
-pre-registered a* in `pooled.core2`) therefore puts its vertex 0.10 to 0.14 to the right of the true maximum.
+The curve falls more slowly to the right of 0.5 than to the left. The quadratic fitted over the grid
+therefore puts its vertex to the right of the true maximum: 0.05 to 0.07 on P-R's grid [0, 1] (the a* in use;
+corrected, first written as [0, 1.5]), 0.09 to 0.13 on [0, 1.5].
 Within-day size distributions drive this. On the same Q-T1 sizes without the clip, pooled over each stock's 8
 days rather than day by day, the vertex is 0.53. For lognormal sizes the curve is symmetric: the analytic curve
 for sigma of log q from 0.8 to 1.6 gives a vertex of 0.500 to 0.507.
 
-The sizes-only vertex (0.60 to 0.64) overshoots the panels' a*(1) (0.57 to 0.58) by 0.03 to 0.05. The rest of
-the estimator (`tilde` masks, overlapping-window weights) is not reproduced by the sizes-only formula, and that
-gap was not chased further.
+Corrected: on P-R's grid the sizes-only vertex is 0.556 to 0.579, against the panels' a*(1) of 0.57 to 0.58.
+As first written, this paragraph compared the [0, 1.5] vertex (0.60 to 0.64) and reported a gap of 0.03 to
+0.05 that does not exist.
 
 A scratch check (not committed) generated W0's response on clipped sizes too, with 5 panels each in Q-T1 and
 Q-T3. a*(1) moved by 0.005, so the raw/clipped mismatch is not the source.
@@ -301,15 +310,16 @@ drift.
 
 ## 5. Open, for your decision (none acted on)
 
-1. **The a* estimator (frozen in `pooled.core2`).** On real sizes, a* reads 0.06 to 0.13 above psi through the
-   quadratic vertex alone. Options:
+1. **The a* estimator (`pooled.core2`).** On real sizes, a* reads 0.06 to 0.13 above psi through the
+   quadratic vertex alone (corrected: 0.05 to 0.07 on P-R's grid [0, 1]). Options:
    - (a) A local estimate: a quadratic through the grid maximum and its two neighbours, or a finer a grid near
      the maximum.
-   - (b) Fit over [0, 1] instead of [0, 1.5]. This roughly halves the bias, to 0.56 to 0.58.
+   - (b) Fit over [0, 1] instead of [0, 1.5]. This roughly halves the bias, to 0.56 to 0.58. (Corrected:
+     this was already the estimator in use.)
    - (c) Keep a* and centre P-R's margin on the W0 calibration instead of on 1/2.
    
-   (a) is closest to "the argmax of R(a)", which is what a* is meant to be. Any of them changes a frozen
-   function and would be a post-freeze change under `docs/phase3d_tests.md` section 7.
+   (a) is closest to "the argmax of R(a)", which is what a* is meant to be. (Decided 1 Nov 2026: (a), as a
+   pre-freeze decision, `docs/phase3d_tests.md` 7.3.)
 2. **P-M under PAPER2.** The top-bin condition cannot hold, because beta_q is clipped at 0. Either WM is not a
    P-M power world, or PAPER2 needs a beta clip that allows negative beta_q. Separately, beta-hat's slope is
    attenuated to about 45 % of the generator's at both horizons.

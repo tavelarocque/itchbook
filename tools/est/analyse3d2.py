@@ -296,7 +296,7 @@ def analyse(log=print) -> dict:
               "| test | tick bin | evaluable | before Holm | after Holm | passed | correct outcome | rate correct | "
               "[8,64] / [4,32] | left |", "|---|---|---|---|---|---|---|---|---|---|"]
         for (te, tb), r in t["rows"].items():
-            lab = W.CORRECT[w][te]
+            lab = W.CORRECT[w][te] or W.BY_CONSTRUCTION.get((w, te))
             rng_txt = "lags" if te == "P-M" else f"{r['range_8_64']} / {r['range_4_32']}"
             L.append(f"| {te} | {tb} | {r['evaluable'][0]:.2f} | {fmt_rate(r['raw'])} | {fmt_rate(r['holm'])} | "
                      f"{fmt_rate(r['passed'])} | {lab or 'none'} | {fmt_rate(r['correct']) if r['correct'] else '-'} | "
@@ -308,7 +308,8 @@ def analyse(log=print) -> dict:
         for tb, sv in t["stats"].items():
             for k, v in sv.items():
                 if v:
-                    L.append(f"| {tb} | {k} | {v[0]:+.4f} | {v[1]:.4f} | {v[2]} |")
+                    name = f"{k} ({P.PSI_NOTE})" if k == "psi-hat" else k
+                    L.append(f"| {tb} | {name} | {v[0]:+.4f} | {v[1]:.4f} | {v[2]} |")
     occ = occupancy()
     res["occupancy"] = occ
     L += ["", "## P-M bin occupancy, real exploration flow (R2-clipped, ties to the lower bin)", "",
@@ -331,6 +332,7 @@ def analyse(log=print) -> dict:
                 f"{r[f'{t} rej'][0]:.2f} ({r[f'{t} rej change']:+.2f})" for t in C.PRIMARY_TESTS) + " | " + " | ".join(
                 "-" if not r[f"{a} {b} change"] else f"{r[f'{a} {b} change'][0]:+.3f} ({r[f'{a} {b} change'][1]:.3f})"
                 for a, b in THIN_STATS) + " |")
+        L.append(f"\nP-R psi_hat: {P.PSI_NOTE}.")
     (REP / "tables.md").write_text("\n".join(L) + "\n")
     for t in res["worlds"].values():
         t["rows"] = {f"{te}|{tb}": r for (te, tb), r in t["rows"].items()}
@@ -348,7 +350,7 @@ def pilot_tables(log=print) -> str:
          "| world | test | tick bin | evaluable | before Holm | after Holm | passed | correct | rate correct |",
          "|---|---|---|---|---|---|---|---|---|"]
     out = {}
-    for w in W.WORLDS:
+    for w in [w for w in W.WORLDS if any(r["world"] == w for r in res)]:
         by = {}
         for r in res:
             if r["world"] == w:
@@ -361,7 +363,8 @@ def pilot_tables(log=print) -> str:
                 cr = correct_rate(w, t, decs)
                 ev, raw, hol, pas = (rate([d[k] for d in decs]) for k in ("evaluable", "raw", "rejected", "passed"))
                 L.append(f"| {w} | {t} | {tb} | {ev[0]:.1f} | {fmt_rate(raw)} | {fmt_rate(hol)} | {fmt_rate(pas)} | "
-                         f"{W.CORRECT[w][t] or 'none'} | {fmt_rate(cr) if cr else '-'} |")
+                         f"{W.CORRECT[w][t] or W.BY_CONSTRUCTION.get((w, t)) or 'none'} | "
+                         f"{fmt_rate(cr) if cr else '-'} |")
     txt = "\n".join(L) + "\n"
     (REP / "pilot_rates.md").write_text(txt)
     log(txt)

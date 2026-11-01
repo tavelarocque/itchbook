@@ -23,6 +23,16 @@ import prereg3d as C
 import primary3d as P
 import worlds3d2 as W
 
+
+@pytest.fixture(autouse=True)
+def restore_grid():
+    """Every test leaves prereg3d's grid and primary3d's KW as it found them (the planted grid-patch bug
+    leaves them patched, which would leak into later tests and other files)."""
+    saved = (C.T_GRID, C.RANGES, C.PRIMARY_RANGE, C.FALLBACK_RANGE, P.KW, P.RANGE_NAMES)
+    yield
+    C.T_GRID, C.RANGES, C.PRIMARY_RANGE, C.FALLBACK_RANGE, P.KW, P.RANGE_NAMES = saved
+
+
 CELL = G.Cell("TEST", np.arange(100, 200), 3.0, 1.0, (0.3, 0.7), {"w1": 0.3, "H": 0.8, "w2": 0.0, "phi": 0.5})
 
 
@@ -397,12 +407,79 @@ def check_long_unit_matches_run_unit():
     assert C.T_GRID is g0 and C.RANGES == ((4, 32), (8, 64)) and P.KW["T_grid"] is g0
 
 
+# ---- 1 Nov 2026: a* = the local vertex at the grid maximum, censored at a grid end ----------------------------
+
+R_SKEW = np.array([0.857, 0.972, 1.0, 0.983, 0.935])  # 3d-2b's Q-T1 sizes-only R(a) / R(0.5), a = 0 .. 1
+
+
+def local3(R, k, h=0.25):
+    """The parabola vertex through grid points k - 1, k, k + 1, written out."""
+    return k * h + 0.5 * h * (R[k - 1] - R[k + 1]) / (R[k - 1] - 2 * R[k] + R[k + 1])
+
+
+def check_astar_local():
+    """The known answer on 3d-2b's skewed curve (0.531, where the global quadratic gives 0.58), a maximum at
+    a = 0.25 (neighbours on both sides), within h / 2 of the grid maximum, symmetric curves exact, NaN kept."""
+    assert P.vertex(R_SKEW) == pytest.approx(local3(R_SKEW, 2), abs=1e-12)
+    assert abs(P.vertex(R_SKEW) - 0.531) < 0.001 and P.vertex_ls(R_SKEW) - P.vertex(R_SKEW) > 0.04
+    R1 = np.array([0.95, 1.0, 0.97, 0.9, 0.8])
+    assert P.vertex(R1) == pytest.approx(local3(R1, 1), abs=1e-12) and P.censored(R1) == 0
+    rng = np.random.default_rng(0)
+    for _ in range(200):
+        c = rng.uniform(0.2, 0.8)
+        R = np.exp(-rng.uniform(0.3, 3) * (C.A_GRID - c) ** 2) + 0.01 * rng.standard_normal(5)
+        k = int(np.argmax(R))
+        if 0 < k < 4:
+            assert abs(P.vertex(R) - C.A_GRID[k]) <= 0.125 + 1e-12 and P.vertex(R) == pytest.approx(local3(R, k))
+    for c in (0.3, 0.5, 0.6):  # a symmetric curve's vertex is its centre when the stencil is the parabola itself
+        assert P.vertex(1 - (C.A_GRID - c) ** 2) == pytest.approx(c, abs=1e-12)
+    assert np.isnan(P.vertex(np.array([0.9, np.nan, 1.0, 0.9, 0.8])))
+    Rb = np.stack([R_SKEW, R1, R_SKEW[::-1]])  # batched along leading axes
+    assert np.allclose(P.vertex(Rb[None]), [[local3(R_SKEW, 2), local3(R1, 1), 1 - local3(R_SKEW, 2)]])
+
+
+def check_astar_censored():
+    """A maximum at a grid end: a* is that end's a, censored -1 / +1, and P-R fails at that end (p = 1, the
+    condition False) even when the replicates sit inside the margin."""
+    dec = np.array([1.0, 0.95, 0.85, 0.7, 0.5])
+    assert P.vertex(dec) == 0.0 and P.censored(dec) == -1
+    assert P.vertex(dec[::-1]) == 1.0 and P.censored(dec[::-1]) == 1
+    assert P.censored(R_SKEW) == 0 and P.censored(np.array([np.nan, 1, 0.9, 0.8, 0.7])) == 0
+    r = np.random.default_rng(1)
+    ends = P.Reps(np.array([0.5, 0.5]), 0.5 + 0.01 * r.standard_normal((200, 2)),
+                  0.5 + 0.003 * r.standard_normal((8, 2)), 0.5 + 0.01 * r.standard_normal((200, 2)))
+    ok = P.decide_pr(ends, np.array([0, 0]))
+    assert ok["p"] < 0.01 and all(ok["conditions"].values()) and ok["censored"] == [None, None]
+    for cens, bad in (([1, 0], "T1_within_margin"), ([0, -1], "T2_within_margin")):
+        d = P.decide_pr(ends, np.array(cens))
+        assert d["p"] == 1.0 and not d["conditions"][bad] and sum(d["conditions"].values()) == 1, (cens, d)
+
+
+def check_pr_uses_local_vertex():
+    """run_unit's P-R a*(T1), a*(T2) are primary3d.vertex of core2's pooled R at those horizons (not core2's
+    global a_star), and the censoring reaches the decision."""
+    flows = {"Q-T3S1": g0_cell_flow(6, 4, 900, 1)}
+    u = P.cell_unit(flows, "Q-T3S1")
+    res = P.run_unit(u, P.PMParams(3, 16, 128, 50), np.random.default_rng(3), n_boot=20, tests=("P-R",))
+    t = res["tests"]["P-R"]
+    S_, D_ = u.flow.Nsd.shape
+    o = P.PO.core2(u.raw, np.ones((1, D_)), np.ones((1, S_)), u.specs, "tilde", **P.KW)
+    Ra = np.moveaxis(o["R"][0, ..., 0], 0, -1)  # (nT, na)
+    for r in C.RANGES:
+        ix = [int(np.flatnonzero(C.T_GRID == r[0])[0]), int(np.flatnonzero(C.T_GRID == r[1])[0])]
+        rn = P.RANGE_NAMES[C.RANGES.index(r)]
+        got = t.by_range[rn]["a_star_T1_T2"]["estimate"]
+        assert np.allclose(got, P.vertex(Ra[ix]), rtol=0, atol=1e-12), r
+        assert np.min(np.abs(np.asarray(got) - o["a_star"][0, ix, 0])) > 1e-6, r  # the check can tell them apart
+        assert t.by_range[rn]["censored"] == [None, None]
+
+
 CHECKS = {f.__name__: f for f in [
     check_world_labels, check_world_specs, check_design_rule, check_design_rule_ties_and_fallback,
     check_router_share_once, check_thin_settings_paired, check_setting_grid, check_burn_from_other_days,
     check_wb_beta_and_impact, check_semi_response_direct, check_semi_flow_unchanged, check_wm_burn,
     check_tick_bin_matches_run_primary, check_m3_short_days, check_tie_bins, check_coin_informed,
-    check_long_unit_matches_run_unit,
+    check_long_unit_matches_run_unit, check_astar_local, check_astar_censored, check_pr_uses_local_vertex,
 ]}
 
 
@@ -482,6 +559,21 @@ BUGS = [
     Bug("long unit: the grid patch not restored", DB, "grid",
         "C.T_GRID, C.RANGES, C.PRIMARY_RANGE, C.FALLBACK_RANGE, P.KW, P.RANGE_NAMES = saved", "pass",
         ("check_long_unit_matches_run_unit",)),
+    Bug("a*: the global quadratic used (vertex)", P, "vertex", "return np.where(fin, ast, np.nan)",
+        "return vertex_ls(R, a_grid)", ("check_astar_local",)),
+    Bug("a*: the global quadratic used (P-R reads core2's a_star)", P, "run_unit",
+        "ast, cen = vertex(Ra), censored(Ra)", 'ast, cen = o["a_star"][..., 0], censored(Ra)',
+        ("check_pr_uses_local_vertex",)),
+    Bug("a*: neighbours taken from one side of the maximum", P, "vertex", "c = np.clip(k, 1, len(a) - 2)",
+        "c = np.clip(k + 1, 1, len(a) - 2)", ("check_astar_local",)),
+    Bug("a*: neighbours swapped (vertex on the wrong side)", P, "vertex", "0.5 * h * (Rm - Rp) / den",
+        "0.5 * h * (Rp - Rm) / den", ("check_astar_local",)),
+    Bug("a*: censored end treated as interior (vertex)", P, "vertex",
+        "ast = np.where(k == 0, a[0], np.where(k == len(a) - 1, a[-1], inner))", "ast = inner",
+        ("check_astar_censored",)),
+    Bug("a*: censored end treated as interior (P-R decision)", P, "decide_pr",
+        "cens = np.zeros(2) if cens is None else np.asarray(cens)", "cens = np.zeros(2)",
+        ("check_astar_censored",)),
 ]
 DATA_BUGS = [
     ("WB's P-M labelled no reject", ("WB", "P-M", "no reject")),

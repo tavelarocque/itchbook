@@ -11,7 +11,7 @@
              replaced), N_LONG panels
   abias      a*(T) at every T in W0 against W0-shuf (signs permuted within the day), N_ABIAS panels
   vertex     sizes only: the expected T = 1 curve R(a) of W0 without sign memory, its argmax against the
-             quadratic vertex that a* is
+             global quadratic vertex (the a* until 1 Nov 2026) and the local vertex (primary3d.vertex)
 
 Every job writes one JSON under OUT/<kind>/ and is skipped when its file exists (resumable). At most 3
 workers. Real data enter only through worlds3d2's flow cache (signs, sizes, timestamps; no prices).
@@ -114,7 +114,8 @@ def vertex(psi: float = 0.5, k: float = 0.3) -> dict:
     per stock-day c(a) = mean(qc^a q^psi) / sqrt(mean(qc^2a) mean(q^2psi)) (response on raw q, regressor
     R2-clipped, as in W0), pooled as core2 pools z = arctanh(k c) (k: signal scale, the vertex barely moves
     with it). Its argmax is psi on every day (Cauchy-Schwarz); the record holds the quadratic vertex over
-    the estimator's a range [0, 1.5], over [0, 1], the argmax on a fine grid and the shape R(a) / R(psi)."""
+    [0, 1.5], over P-R's grid [0, 1] (the a* until 1 Nov 2026), the argmax on a fine grid and the shape
+    R(a) / R(psi), from which the tables compute the local vertex (primary3d.vertex, the a* since then)."""
     g = PO.A_GRID[PO.A_GRID <= PO.A_PF]
     fine = np.linspace(0.0, float(g[-1]), 151)
 
@@ -152,10 +153,23 @@ def vertex(psi: float = 0.5, k: float = 0.3) -> dict:
 # ---- shared: one unit's records ------------------------------------------------------------------------------
 
 
-def a_star_all_T(u: P.Unit) -> list:
-    """a*(T) at every T of the grid, all days and stocks (pooled.core2 as run_unit calls it)."""
+def pooled_R(u: P.Unit) -> np.ndarray:
+    """Pooled R_a(T), all days and stocks (pooled.core2 as run_unit calls it), (nT, na)."""
     S_, D_ = u.flow.Nsd.shape
-    return _f(PO.core2(u.raw, np.ones((1, D_)), np.ones((1, S_)), u.specs, "tilde", **P.KW)["a_star"][0, :, 0])
+    return np.moveaxis(PO.core2(u.raw, np.ones((1, D_)), np.ones((1, S_)), u.specs, "tilde", **P.KW)["R"][0, ..., 0],
+                       0, -1)
+
+
+def a_star_all_T(u: P.Unit) -> list:
+    """a*(T) at every T of the grid (primary3d.vertex, as P-R)."""
+    return _f(P.vertex(pooled_R(u)))
+
+
+def a_star_records(u: P.Unit) -> dict:
+    """a*(T) at every T (P-R's local vertex), its censoring, the global quadratic of 3d-2b and R itself."""
+    R = pooled_R(u)
+    return {"a_star_all_T": _f(P.vertex(R)), "a_star_censored_all_T": P.censored(R).tolist(),
+            "a_star_ls_all_T": _f(P.vertex_ls(R)), "R_all_T": _f(R)}
 
 
 def logq_sd(fl: P.Flow, used: np.ndarray, d: P.PMParams) -> np.ndarray:
@@ -189,7 +203,8 @@ def unit_record(res: dict, u: P.Unit | None = None, pm_logq: dict | None = None)
                                   "slope_S1": _summ(v["slope_S1"]), "slope_S2": _summ(v["slope_S2"]),
                                   "zeta_V": _summ(v["zeta_V"])} for rn, v in t.by_range.items()}
         elif name == "P-R":
-            r["by_range"] = {rn: {"p": v["p"], "conditions": v["conditions"], "a_star_T1_T2": _summ(v["a_star_T1_T2"])}
+            r["by_range"] = {rn: {"p": v["p"], "conditions": v["conditions"], "a_star_T1_T2": _summ(v["a_star_T1_T2"]),
+                                  "censored": v.get("censored")}
                              for rn, v in t.by_range.items()}
             r["psi_hat"] = _summ(t.secondary["psi_hat"])
             r["psi_n_stocks"] = t.secondary["psi_n_stocks"]
@@ -204,7 +219,7 @@ def unit_record(res: dict, u: P.Unit | None = None, pm_logq: dict | None = None)
                          top=_summ(st["top"]), p_slope=st["p_slope"], p_top=st["p_top"])
         rec[name] = r
     if u is not None:
-        rec["a_star_all_T"] = a_star_all_T(u)
+        rec.update(a_star_records(u))
         rec["T_grid"] = C.T_GRID.tolist()
     if pm_logq is not None:
         rec["pm_logq"] = pm_logq
@@ -596,6 +611,18 @@ def _abias_tables(ab: list) -> list:
                 L.append(_row(w, tb, len(rs), *_cols(rs, lambda r: r["a_star_all_T"]), _rate(passed(x) for x in pr),
                               _fmt(*_ms([x["psi_hat"]["estimate"] for x in pr])[:2]),
                               _fmt(_ms([x["psi_n_stocks"] for x in pr])[0], d=0)))
+    L += ["", f"psi-hat: {P.PSI_NOTE}."]
+    if "a_star_ls_all_T" in ab[0]:
+        L += ["", "The same panels: the global quadratic of 3d-2b (vertex_ls), and panels whose maximum is censored "
+              "at a grid end (low/high).", "",
+              *_head("world", "tick bin", *(f"T = {t}" for t in T_grid), *(f"cens. T = {t}" for t in T_grid))]
+        for w in ("W0", "W0-shuf"):
+            for tb in C.TICK_BINS:
+                rs = [r for r in ab if r["world"] == w and r["tick_bin"] == tb]
+                if rs:
+                    cz = np.array([r["a_star_censored_all_T"] for r in rs])
+                    L.append(_row(w, tb, *_cols(rs, lambda r: r["a_star_ls_all_T"]),
+                                  *(f"{int(np.sum(c < 0))}/{int(np.sum(c > 0))}" for c in cz.T)))
     return L + [""]
 
 
@@ -603,10 +630,13 @@ def _vertex_tables(vx: dict) -> list:
     g = next(iter(vx.values()))["a_grid"]
     L = ["Sizes only, no signs or prices: W0's expected T = 1 curve without sign memory (diag3d2b.vertex).", "",
          *_head("tick bin", "stocks", *(f"R({a:g}) / R(0.5)" for a in g), "argmax (fine grid)",
-                "quadratic vertex on [0, 1.5] (a*)", "vertex on [0, 1]")]
+                "quadratic vertex on [0, 1.5]", "vertex on [0, 1] (a* until 1 Nov 2026)",
+                "local vertex (a*)")]
     for tb, r in vx.items():
+        a, sh = np.asarray(g), np.asarray(r["shape"])  # the vertex is scale-free: R / R(0.5) is enough
         L.append(_row(tb, r["n_stocks"], *(f"{x:.3f}" for x in r["shape"]), f"{r['argmax_fine']:.2f}",
-                      f"{r['vertex_0_1.5']:.3f}", f"{r['vertex_0_1']:.3f}"))
+                      f"{r['vertex_0_1.5']:.3f}", f"{r['vertex_0_1']:.3f}",
+                      f"{float(P.vertex(sh[a <= C.A_MAX], a[a <= C.A_MAX])):.3f}"))
     return L + [""]
 
 

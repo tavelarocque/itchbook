@@ -1,4 +1,7 @@
-# Phase 3d-1: the four primary tests as frozen functions
+# Phase 3d-1: the four primary tests as fixed functions
+
+Nothing is frozen yet: the freeze comes after Phase 3. Every change recorded in section 7 is an ordinary
+pre-freeze decision.
 
 Labels: **Measurement** = what a computation showed; **Choice** = a decision taken here. No real data were read:
 no test ran on exploration or confirmation data, and there is no simulation study in this step.
@@ -202,8 +205,11 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
 - **p** = max(p_S1, p_S2) when (i) holds, else 1. **Choice:** (i) is a gate without a p-value.
 
 **P-R.**
-- a*(T) is the vertex of the least-squares quadratic in a of R_a(T), pooled through Fisher z (`pooled.core2`),
-  NaN unless concave. **Choice:** it is NaN below the range's reach.
+- a*(T) (decided 1 Nov 2026, section 7.3): the vertex of the parabola through the grid maximum of the
+  pooled Fisher-z R_a(T) (`pooled.core2`'s R) and its two neighbours (`primary3d.vertex`). A maximum at a grid
+  end is censored there, and P-R fails at that T. Until 1 Nov 2026 a* was the vertex of the least-squares
+  quadratic over the whole grid, NaN unless concave (`pooled.core2`'s a_star, now `primary3d.vertex_ls`).
+  **Choice:** it is NaN below the range's reach.
 - TOST at T1 and at T2: H0 a* <= 0.35 and H0 a* >= 0.65. p_end is the larger of the two, and
   p = max(p_end(T1), p_end(T2)).
 - Conditions: the 0.90 interval (the TOST interval) lies inside (0.35, 0.65) at T1 and at T2.
@@ -288,7 +294,7 @@ the repo; see section 6.
 
 | input | result |
 |---|---|
-| Eq. 74, B = 0, A(T) = 0.3 T^-0.1, replicate noise 0.002 | a* = 0.500 at both ends; P-R p = 0.0022 (T1), 0.0003 (T2); passes |
+| Eq. 74, B = 0, A(T) = 0.3 T^-0.1, replicate noise 0.002 (jackknife noise 0.002 / sqrt(8), from 1 Nov 2026) | a* = 0.500 at both ends; P-R p = 0.0002 (T1), 0.0004 (T2) with the local vertex; passes |
 | R peaked at a* = 0.25 at both ends | P-R p = 1.0; both conditions fail |
 | a* = 0.5 at one end, 0.2 at the other (either end) | p > 0.5; one condition fails |
 | G0 flow, sizes independent of signs (10 stocks x 6 days x 1500 runs) | (ii) p_S1 = 1.0, p_S2 = 0.98; slopes +0.022, +0.016; M3 (the true model) beats M2; P-V fails |
@@ -341,7 +347,7 @@ the repo; see section 6.
 | P-M top bin taken as the smallest sizes | `pm_stats` | check_pm_recovers_beta |
 
 Other checks: config table, the cell ceilings in a pooled tick bin, the M2 fit recovering its parameters,
-leave-one-day-out choosing the true model, vertex = `pooled.core2`'s a*, P-M parameter validation and the
+leave-one-day-out choosing the true model, vertex_ls = `pooled.core2`'s a*, P-M parameter validation and the
 min-runs and ceiling rules, the whole primary run (family, log of pairs that left), and psi-hat's known answer.
 
 Full suite (`uv run --group dev --group analysis pytest`): 398 passed, 28 skipped (was 344 passed before
@@ -361,9 +367,10 @@ Phase 3d-1). The new file runs in about 4 s.
   q-independent term to E[Delta_1 eps | q], and psi-hat reads 0.537 against a true 0.5.
 - **Compute cost** at confirmation tick-bin sizes, with N_SUR = 4 and B = 200, is not measured.
 
-## 7. Changes after the freeze
+## 7. Pre-freeze decisions
 
-Both changes below were made before any confirmation data were read and before any power result of Phase 3d-2.
+Nothing is frozen until the end of Phase 3. Every change below was made before any confirmation data were read
+and before any power result of Phase 3d-2.
 
 ### 7.1 `m3_V`: pre-freeze bug fix (Phase 3d-2; approved 1 Nov 2026)
 
@@ -400,3 +407,63 @@ Made from the pilot's bin occupancy (docs/phase3d2_report.md), before any power 
   known answer on a tied sample, P-M using only stock-days at the target count, psi's realised count. Planted
   bugs: a size value split across two bins (rank cuts); an empty bin kept (coinciding cuts kept, no merge); a
   stock-day below the target count used by P-M.
+
+### 7.3 a*: the local vertex at the grid maximum (decided 1 Nov 2026)
+
+- **Rule** (`primary3d.vertex`, `primary3d.censored`). On the pooled Fisher-z R_a(T) at each T, take the grid
+  maximum a_k (the first on ties). Then a* = a_k + (h / 2) (R_k-1 - R_k+1) / (R_k-1 - 2 R_k + R_k+1), with
+  h = 0.25. So a* lies within h / 2 of a_k, and a* = a_k when the three values are equal.
+- **Grid ends.** If the maximum is at a = 0 or a = 1, a* is censored at that end: its value is that end's a,
+  and it is flagged low or high. A censored point estimate at T1 or T2 fails P-R at that end (p = 1 there,
+  its condition False). Censored bootstrap and jackknife replicates keep the end value, which lies outside
+  the margin, so they count on the null side. da*/dlog T uses the same values.
+- **Why.** In 3d-2b, on real within-day size distributions without sign memory, the expected R(a) peaks at
+  psi = 0.5 but falls more slowly to the right than to the left. The least-squares quadratic over the whole
+  grid then puts its vertex to the right of the peak.
+  - On the sizes-only curve, the old a* on {0, ..., 1} is 0.556 to 0.579, against an argmax of 0.51.
+  - The panels in W0-shuf gave a*(1) of 0.57 to 0.58.
+  - The local vertex on the same curves is 0.520 to 0.529.
+  
+  The local vertex is the estimator closest to the argmax of R(a), which is what a* stands for.
+- **Check (Measurement, `diag3d2b.py abias` with `PHASE3D2B_OUT=.../diag3d2b_astar`).** These are the same 30
+  panels per tick bin as 3d-2b (same seeds); the old a* reproduces 3d-2b exactly. Censored panels: none,
+  except 2 high at T = 64 in W0-shuf Q-T2. a*(1), local (old):
+
+  | world | Q-T1 | Q-T2 | Q-T3 |
+  |---|---|---|---|
+  | W0-shuf (no sign memory) | 0.540 (0.583) | 0.537 (0.581) | 0.534 (0.570) |
+  | W0 (real signs) | 0.597 (0.631) | 0.577 (0.613) | 0.582 (0.614) |
+
+  Without sign memory, a*(1) moves to within 0.04 of 0.5. Of the remaining +0.03 to +0.04, the sizes-only
+  curve accounts for +0.02 to +0.03: the three-point stencil on a skewed curve at h = 0.25.
+- **Checks** (`test_3d2.check_astar_local`, `check_astar_censored`, `check_pr_uses_local_vertex`). A known
+  answer on 3d-2b's skewed curve (0.531; the global quadratic gives 0.58), a maximum at a = 0.25, within h / 2
+  of the grid maximum, symmetric parabolas exact, NaN kept. Grid ends censored, and P-R failing there with the
+  replicates inside the margin. run_unit's a* equal to vertex of core2's R and different from core2's a_star.
+  Planted bugs:
+  - the global quadratic used (in vertex; and P-R reading core2's a_star);
+  - neighbours taken from one side of the maximum;
+  - neighbours swapped;
+  - a censored end treated as interior (in vertex; and in the P-R decision).
+- **Unchanged.** `pooled.core2` still returns the old a_star, so Phases 3c to 3d-2b reproduce. Phase 3d reads
+  a* only through `primary3d.vertex`.
+
+### 7.4 psi-hat: no correction (decided 1 Nov 2026)
+
+psi-hat keeps its definition. In 3d-2b's W0-shuf (psi = 0.5, no sign memory) it read 0.553, 0.532 and 0.521
+in Q-T1, Q-T2 and Q-T3, so +0.02 to +0.05 high. Every report of psi-hat carries this (`primary3d.PSI_NOTE`:
+P-R's secondary, the analyse3d2 tables, the diag3d2b tables).
+
+### 7.5 WM and the scope of the 3d-2 study (decided 1 Nov 2026)
+
+- WM stays the published PAPER2 preset, with beta_q clipped at 0. P-M's top-bin condition (beta_top below 0)
+  cannot hold there. WM's P-M is reported as "fails by construction" (`worlds3d2.BY_CONSTRUCTION`), and it is
+  not scored. WB remains the P-M power world.
+- `phase3d2.py all` runs W-null (the clean coin-flip version), W0, W0-psi3 and WB, with the tie-aware bins:
+  - design: W-null, W0, WB at all 18 P-M designs;
+  - power: W0-psi3 at the chosen design;
+  - analyse.
+- WM (`phase3d2.py wm`) and thinning (`phase3d2.py thin`) are separate commands, kept for later.
+- With WM out of `all`, P-V has no power world in the study. WM was P-V's power world
+  (`worlds3d2.PV_POWER_WORLD`).
+

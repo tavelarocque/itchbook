@@ -79,6 +79,9 @@ CORRECT = {
     "WB": {"P-V": None, "P-R": None, "P-M": "reject", "P-F": None},
     "WM": {"P-V": None, "P-R": None, "P-M": None, "P-F": None},
 }
+# Decided 1 Nov 2026: WM stays the published PAPER2 preset (beta_q clipped at 0), so the top-bin condition of
+# P-M cannot hold there; WM's P-M is reported as failing by construction, not scored. WB is P-M's power world.
+BY_CONSTRUCTION = {("WM", "P-M"): "fails by construction (PAPER2 clips beta_q at 0: the top bin cannot be < 0)"}
 SIZE_WORLDS = ("W0", "W-null")  # P-M design rule: size constraint
 POWER_WORLD = "WB"  # P-M design rule: objective
 PV_SIZE_WORLD, PV_POWER_WORLD = "W-null", "WM"

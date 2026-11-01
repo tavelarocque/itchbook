@@ -311,15 +311,16 @@ def astar_reps(R_fn, sd=0.002, seed=0) -> P.Reps:
     """Reps of (a*(T1), a*(T2)) on [8, 64] from noisy copies of R_a(T) through primary3d.vertex."""
     rng = np.random.default_rng(seed)
     R0 = np.array([R_fn(C.A_GRID, t) for t in (8.0, 64.0)])  # (2, na)
-    noisy = lambda n: R0[None] + sd * rng.standard_normal((n, *R0.shape))  # noqa: E731
-    return P.Reps(P.vertex(R0), P.vertex(noisy(200)), P.vertex(noisy(8)), P.vertex(noisy(200)))
+    noisy = lambda n, s=sd: R0[None] + s * rng.standard_normal((n, *R0.shape))  # noqa: E731
+    # leave-one-day-out values scatter sd / sqrt(D) around the estimate, as in reps()
+    return P.Reps(P.vertex(R0), P.vertex(noisy(200)), P.vertex(noisy(8, sd / np.sqrt(8))), P.vertex(noisy(200)))
 
 
 def check_vertex_matches_core2():
-    """primary3d.vertex is pooled.core2's a* (same quadratic, same concavity rule)."""
+    """primary3d.vertex_ls (the a* before 1 Nov 2026) is pooled.core2's a* (same quadratic, same concavity rule)."""
     u = P.cell_unit({"Q-T3S1": g0_flow(6, 3, 800, 6)}, "Q-T3S1")
     o = PO.estimate2(u.raw, u.specs, **P.KW)
-    assert np.allclose(P.vertex(np.moveaxis(o["R"][..., 0], 0, -1)), o["a_star"][..., 0], equal_nan=True)
+    assert np.allclose(P.vertex_ls(np.moveaxis(o["R"][..., 0], 0, -1)), o["a_star"][..., 0], equal_nan=True)
 
 
 def check_pr_eq74_known_answer():

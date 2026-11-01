@@ -12,6 +12,10 @@ now use tie-aware size bins (`primary3d.tie_bins`). The pilot's numbers below pr
 particular, the pilot's W-null P-F rejections (8 of 10) came from the real informed signs and do not occur
 under the clean null (0 of 20 per tick bin).
 
+**And by Phase 3d-2c (`docs/phase3d2c_report.md`, 1 Nov 2026).** a* is now the local vertex at the grid
+maximum. `all` runs W-null, W0, W0-psi3 and WB only. This pilot's files moved to
+`~/CODE/itch-data/phase3d2/report/pilot_3d2/`; `report/pilot.*` is the 3d-2c re-pilot.
+
 ## Headlines
 
 1. **The study does not fit this session (Measurement).** The pilot (150 panel-tick-bins, 30.7 min on 2 workers)

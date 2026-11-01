@@ -1,4 +1,5 @@
-"""Phase 3d-1: the four primary tests P-V, P-R, P-M, P-F and Holm-Bonferroni, as frozen functions.
+"""Phase 3d-1: the four primary tests P-V, P-R, P-M, P-F and Holm-Bonferroni, as fixed functions
+(nothing is frozen before the end of Phase 3; changes are recorded in docs/phase3d_tests.md section 7).
 
 Constants fixed by the pre-registration live in prereg3d. Every decision taken here is marked CHOICE and
 listed in docs/phase3d_tests.md. No function here reads data files: callers pass Flow objects.
@@ -30,7 +31,9 @@ The tests (each returns a TestResult; run_primary's Holm then sets rejected and 
        over a below M2's fitted a_c, of zeta_V(a) real minus surrogate is negative, for S1 and for S2.
        p = max(p_S1, p_S2) when (i) holds, else 1 (CHOICE: (i) is a gate without a p-value).
   P-R  equivalence: a*(T1) and a*(T2) of the range used both within 1/2 +- 0.15 (TOST at each end;
-       intersection-union, p = the larger end's TOST p). Secondary: R_{1/2}/R_0 against e^{sigma_l^2/8},
+       intersection-union, p = the larger end's TOST p). a* = vertex (1 Nov 2026): the parabola through
+       the grid maximum of the pooled R_a(T) and its two neighbours; a maximum at a grid end is censored and
+       fails. Secondary: R_{1/2}/R_0 against e^{sigma_l^2/8},
        psi-hat (pre-registered: per stock, the OLS slope of log E[Delta_1 eps | q-bin] on log median q of the
        bin over quantile bins of run size; equal-weight mean over the unit's stocks), and da*/dlog T with a
        two-sided interval.
@@ -65,6 +68,8 @@ PM_BETAS = np.round(np.arange(-1.0, 1.5001, 0.01), 2)  # CHOICE: propagator.fit_
 PM_L0S = np.logspace(-1, 2.5, 71)  # propagator.fit_power's grid
 M2_KBELOW = (2, 3, 4, 5)  # CHOICE: a_c leaves 2..5 grid points below it (a_c in (0.25, 0.5], ..., or > 1)
 SNAP = 1e-12  # CHOICE: a slope below this in size is 0 (an exactly flat input gives +-3e-17 from the OLS weights)
+# Decided 1 Nov 2026: psi-hat is not corrected; every report of it carries this (docs/phase3d_tests.md 7.4)
+PSI_NOTE = "psi-hat reads +0.02 to +0.05 high without sign memory (3d-2b, W0-shuf at psi = 0.5); not corrected"
 
 
 # ---- input ------------------------------------------------------------------------------------------------
@@ -403,17 +408,20 @@ def decide_pf(pf: Reps) -> dict:
             "conditions": {"interval_excludes_0": bool((lo > 0) | (hi < 0))}}
 
 
-def decide_pr(ends: Reps) -> dict:
-    """ends: a*(T1), a*(T2). TOST at each end against 1/2 -+ 0.15; p = the larger end's TOST p."""
+def decide_pr(ends: Reps, cens=None) -> dict:
+    """ends: a*(T1), a*(T2). TOST at each end against 1/2 -+ 0.15; p = the larger end's TOST p. cens: the
+    point estimate's censoring at (T1, T2) (censored); a censored end fails (p = 1 there, condition False)."""
     lo_m, hi_m = C.PR_CENTRE - C.PR_MARGIN, C.PR_CENTRE + C.PR_MARGIN
+    cens = np.zeros(2) if cens is None else np.asarray(cens)
     p_lo = p_value(ends, lo_m, "greater")  # H0: a* <= 0.35
     p_hi = p_value(ends, hi_m, "less")  # H0: a* >= 0.65
-    p_end = np.maximum(p_lo, p_hi)
+    p_end = np.where(cens != 0, 1.0, np.maximum(p_lo, p_hi))
     lo, hi, _ = interval(ends)
-    inside = (lo > lo_m) & (hi < hi_m)
+    inside = (lo > lo_m) & (hi < hi_m) & (cens == 0)
+    side = {-1: "low", 0: None, 1: "high"}
     return {"p": float(np.max(p_end)), "alternative": "equivalence (TOST, both ends)",
-            "p_end": p_end.tolist(), "conditions": {"T1_within_margin": bool(inside[0]),
-                                                     "T2_within_margin": bool(inside[1])}}
+            "p_end": p_end.tolist(), "censored": [side[int(v)] for v in cens],
+            "conditions": {"T1_within_margin": bool(inside[0]), "T2_within_margin": bool(inside[1])}}
 
 
 def decide_pm(slope: Reps, top: Reps) -> dict:
@@ -452,13 +460,45 @@ def _range_idx(r) -> np.ndarray:
     return np.flatnonzero((C.T_GRID >= lo) & (C.T_GRID <= hi))
 
 
-def vertex(R: np.ndarray, a_grid=C.A_GRID) -> np.ndarray:
-    """a* = vertex of the least-squares quadratic in a of R (..., na); NaN unless concave (as pooled.core2)."""
+def vertex_ls(R: np.ndarray, a_grid=C.A_GRID) -> np.ndarray:
+    """The a* of Phases 3c to 3d-2b (pooled.core2's a_star): vertex of the least-squares quadratic in a of R
+    (..., na) over the whole grid; NaN unless concave. Kept to reproduce those reports; P-R uses vertex."""
     a = np.asarray(a_grid, dtype=float)
     X = np.stack([np.ones_like(a), a, a * a], axis=1)
     coef = np.einsum("ca,...a->...c", np.linalg.pinv(X), R)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(coef[..., 2] < 0, -coef[..., 1] / (2 * coef[..., 2]), np.nan)
+
+
+def _grid_max(R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Index of the grid maximum of R (..., na) (the first on ties) and whether every R is finite."""
+    fin = np.all(np.isfinite(R), axis=-1)
+    return np.argmax(np.where(np.isfinite(R), R, -np.inf), axis=-1), fin
+
+
+def vertex(R: np.ndarray, a_grid=C.A_GRID) -> np.ndarray:
+    """a* (decided 1 Nov 2026, docs/phase3d_tests.md 7.3): the vertex of the parabola through the grid maximum
+    of R (..., na) and its two neighbours, a_k + (h / 2) (R_k-1 - R_k+1) / (R_k-1 - 2 R_k + R_k+1), within
+    h / 2 of a_k. A maximum at a grid end is censored there: a* is that end's a (censored gives the side).
+    NaN where any R is undefined."""
+    a = np.asarray(a_grid, dtype=float)
+    h = a[1] - a[0]
+    if not np.allclose(np.diff(a), h):
+        raise ValueError("vertex needs an equally spaced a grid")
+    k, fin = _grid_max(R)
+    c = np.clip(k, 1, len(a) - 2)
+    Rm, R0, Rp = (np.take_along_axis(R, (c + s)[..., None], axis=-1)[..., 0] for s in (-1, 0, 1))
+    den = Rm - 2 * R0 + Rp  # <= 0 at an interior maximum; 0 only when the three are equal
+    with np.errstate(invalid="ignore", divide="ignore"):
+        inner = a[c] + np.where(den < 0, 0.5 * h * (Rm - Rp) / den, 0.0)
+    ast = np.where(k == 0, a[0], np.where(k == len(a) - 1, a[-1], inner))
+    return np.where(fin, ast, np.nan)
+
+
+def censored(R: np.ndarray) -> np.ndarray:
+    """-1 where R's grid maximum is the lowest a, +1 where it is the highest, 0 inside (or R undefined)."""
+    k, fin = _grid_max(R)
+    return np.where(fin, np.where(k == 0, -1, np.where(k == R.shape[-1] - 1, 1, 0)), 0)
 
 
 def _pooled(x_sd: np.ndarray, Wd, Ws, n_days: int) -> np.ndarray:
@@ -862,14 +902,17 @@ def run_unit(u: Unit, pm: PMParams, rng: np.random.Generator, n_boot: int = C.N_
         B = len(Wd)
         out = {"pf": snap(o["pf"][..., 0]), "zeta_K": o["zeta_K"][..., 0], "zeta_V": o["zeta_V"][..., 0],
                "vk_diff": o["vk_diff"][..., 0], "Rratio": o["Rratio"][..., 0]}
-        ast = o["a_star"][..., 0]  # (B, nT)
+        Ra = np.moveaxis(o["R"][..., 0], 1, -1)  # (B, nT, na)
+        ast, cen = vertex(Ra), censored(Ra)  # (B, nT); censored replicates keep the end's a
         ends = np.full((B, len(C.RANGES), 2), np.nan)
+        cens = np.zeros((B, len(C.RANGES), 2))
         slope_a = np.full((B, len(C.RANGES)), np.nan)
         for r, j in ir.items():
             if reach_ok[j]:
                 ends[:, j] = ast[:, [i1[r][0], i1[r][-1]]]
+                cens[:, j] = cen[:, [i1[r][0], i1[r][-1]]]
                 slope_a[:, j] = ast[:, i1[r]] @ _ols(np.log(C.T_GRID[i1[r]]))
-        out["a_star_ends"], out["dastar_dlogT"] = ends, snap(slope_a)
+        out["a_star_ends"], out["a_star_censored"], out["dastar_dlogT"] = ends, cens, snap(slope_a)
         s2 = _pooled(sig2_sd, Wd, Ws, D_)
         out["sig2"] = s2
         out["Rratio_minus_target"] = out["Rratio"] - np.exp(s2 / 8)[:, None]
@@ -921,7 +964,7 @@ def _pf(reps, ir, r_used, by, top, tests) -> None:
 def _pr(reps, ir, r_used, by, top, tests) -> None:
     by_r = {}
     for r, j in ir.items():
-        d = decide_pr(reps["a_star_ends"][j])
+        d = decide_pr(reps["a_star_ends"][j], np.asarray(reps["a_star_censored"][j].est))
         by_r[r] = {**d, "a_star_T1_T2": summary(reps["a_star_ends"][j])}
     tests["P-R"] = _assemble("P-R", by_r, r_used, by, top, ("T1_within_margin", "T2_within_margin"))
     tests["P-R"].secondary = {
@@ -932,6 +975,7 @@ def _pr(reps, ir, r_used, by, top, tests) -> None:
                                          for j in range(len(C.RANGES))},
         "sigma_l2": summary(reps["sig2"]),
         "psi_hat": summary(reps["psi"]),
+        "psi_hat_note": PSI_NOTE,
         "psi_n_stocks": float(reps["psi_n_stocks"].est),
         "dastar_dlogT": {RANGE_NAMES[j]: {**summary(reps["dastar_dlogT"][j]),
                                           "p_two_sided": float(p_value(reps["dastar_dlogT"][j], 0.0, "two-sided"))}

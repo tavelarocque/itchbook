@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
-"""Phase 3d-2 driver: operating characteristics of the four primary tests (primary3d, unchanged).
+"""Phase 3d-2 driver: operating characteristics of the four primary tests (primary3d).
 
-pilot    PILOT_PANELS panels per world at the default P-M design, timed per tick bin; prints the projected
+pilot    PILOT_PANELS panels per world of STUDY_WORLDS at the default P-M design, timed per tick bin; prints the projected
          wall time of the study on the given workers
 design   stage A: N_STUDY panels of W-null, W0, WB; per panel and tick bin P-V, P-R, P-F (one run_unit, as
          run_primary) and P-M at every one of the 18 allowed designs on the SAME draws
 power    applies the P-M design rule (analyse3d2.chosen_design, the rule in worlds3d2.choose_design), then
-         stage B: N_STUDY panels of W0-psi3 and WM at the chosen design
+         stage B: N_STUDY panels of W0-psi3 at the chosen design
+wm       N_STUDY panels of WM (the published PAPER2 preset) at the chosen design; not part of all (decided
+         1 Nov 2026), kept for later. Its P-M fails by construction (worlds3d2.BY_CONSTRUCTION)
 thin     WM thinning: THIN_SETTINGS (shares x rules x kappa) on paired market days, THIN_PANELS panels, P-M at
-         the chosen design
+         the chosen design; not part of all, kept for later
 analyse  rates before and after the one Holm family (primary3d.combine at the chosen design), FWER in W-null,
-         ranges used, pairs that left, bin occupancy, thinning changes; writes report/*.md and .json
-all      design, power, thin, analyse in order (each resumes where it stopped); --panels N caps every
-         world's panels and the thinning panels at N (a smoke run; PHASE3D2_OUT sets the output directory)
-topup    more panels for every world (--panels N), then analyse
+         ranges used, pairs that left, bin occupancy, and WM and thinning when present; writes report/*.md, .json
+all      design, power, analyse in order: STUDY_WORLDS only (each step resumes where it stopped); --panels N
+         caps every world's panels at N (a smoke run; PHASE3D2_OUT sets the output directory)
+topup    more panels for every world of STUDY_WORLDS (--panels N), then analyse
 
 Jobs are chunks of CHUNK_PANELS panels of one (world, tick bin), saved as JSON under
 ~/CODE/itch-data/phase3d2/{study,thin}/ and skipped when present (resumable). Seeds: panel i of world w and
 tick bin tb uses default_rng([SEED, world index, tick bin index, i]).
 
-  uv run --group analysis tools/est/phase3d2.py pilot|all|design|power|thin|analyse|topup [--panels N] [--workers 3]
+  uv run --group analysis tools/est/phase3d2.py pilot|all|design|power|wm|thin|analyse|topup \
+      [--panels N] [--workers 3]
 """
 from __future__ import annotations
 
@@ -58,7 +61,9 @@ THIN_SETTINGS = (("full",),) + tuple(("random", s) for s in THIN_SHARES) + tuple
 # panel's market seed and thins with the setting's own seed, so all settings stay paired.
 THIN_GROUPS = ((0, 1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12))
 DESIGN_WORLDS = ("W-null", "W0", "WB")  # stage A: every P-M design (the design rule's worlds)
-POWER_WORLDS = ("W0-psi3", "WM")  # stage B: the chosen design only
+POWER_WORLDS = ("W0-psi3",)  # stage B: the chosen design only
+STUDY_WORLDS = DESIGN_WORLDS + POWER_WORLDS  # what all, topup and the pilot run (decided 1 Nov 2026)
+LATER_WORLDS = ("WM",)  # the wm command, at the chosen design
 
 
 def setting_name(s: tuple) -> str:
@@ -252,7 +257,7 @@ def pilot_job(args) -> dict:
 
 
 def pilot(workers: int, n: int = PILOT_PANELS, log=print) -> None:
-    js = [(w, tb, i) for w in W.WORLDS for tb in C.TICK_BINS for i in range(n)]
+    js = [(w, tb, i) for w in STUDY_WORLDS for tb in C.TICK_BINS for i in range(n)]
     js.sort(key=lambda j: (j[1] != "Q-T1", j[0]))
     t0 = time.time()
     with ProcessPoolExecutor(workers) as ex:
@@ -264,7 +269,7 @@ def pilot(workers: int, n: int = PILOT_PANELS, log=print) -> None:
     proj = 0.0
     lines = ["| world | tick bin | generate s | unit s | P-V/P-R/P-F s | P-M (1 design) s | total s |",
              "|---|---|---|---|---|---|---|"]
-    for w in W.WORLDS:
+    for w in STUDY_WORLDS:
         for tb in C.TICK_BINS:
             rs = [r for r in res if r["world"] == w and r["tick_bin"] == tb]
             m = {k: float(np.mean([r[k] for r in rs])) for k in ("generate", "unit", "range_tests", "pm", "total")}
@@ -272,10 +277,10 @@ def pilot(workers: int, n: int = PILOT_PANELS, log=print) -> None:
                          f"{m['pm']:.1f} | {m['total']:.1f} |")
             extra = len(W.PM_DESIGNS) - 1 if w in DESIGN_WORLDS else 0
             proj += (m["total"] + extra * m["pm"]) * N_STUDY[w]
-    lines.append(f"\nProjected study, stages A and B (18 designs in {', '.join(DESIGN_WORLDS)}, the chosen one in "
+    lines.append(f"\nProjected study (all: 18 designs in {', '.join(DESIGN_WORLDS)}, the chosen one in "
                  f"{', '.join(POWER_WORLDS)}, N_STUDY panels): {proj / 3600:.1f} worker-hours, "
                  f"{proj / 3600 / workers:.1f} h wall on {workers} workers (P-M cost per design taken as the "
-                 f"default design's; thinning not included).")
+                 f"default design's; WM and thinning not included).")
     (OUT / "report" / "pilot.md").write_text("\n".join(lines) + "\n")
     log("\n".join(lines), flush=True)
 
@@ -286,12 +291,12 @@ def stage_a(workers: int, n_to: dict) -> None:
              lambda j: chunk_path("study", *j[:3]).exists())
 
 
-def stage_b(workers: int, n_to: dict) -> None:
+def stage_b(workers: int, n_to: dict, worlds=POWER_WORLDS) -> None:
     import analyse3d2 as A
 
     key = A.chosen_design(write=True)
     print(f"P-M design: {key}", flush=True)
-    run_jobs(study_job, study_jobs({}, n_to, [key], POWER_WORLDS), workers,
+    run_jobs(study_job, study_jobs({}, n_to, [key], worlds), workers,
              lambda j: chunk_path("study", *j[:3]).exists())
 
 
@@ -308,7 +313,7 @@ def thin(workers: int, n: int) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("step", choices=["pilot", "all", "design", "power", "thin", "topup", "analyse"])
+    ap.add_argument("step", choices=["pilot", "all", "design", "power", "wm", "thin", "topup", "analyse"])
     ap.add_argument("--panels", type=int, default=None)
     ap.add_argument("--workers", type=int, default=min(3, os.cpu_count() or 1))
     a = ap.parse_args()
@@ -319,14 +324,16 @@ def main() -> int:
     if a.step == "topup":
         if a.panels is None:
             raise SystemExit("topup needs --panels")
-        n_to = {w: max(a.panels, N_STUDY[w]) for w in W.WORLDS}
+        n_to = {w: max(a.panels, N_STUDY[w]) for w in STUDY_WORLDS}
     if a.step == "pilot":
         pilot(a.workers, a.panels or PILOT_PANELS)
     elif a.step in ("all", "design", "topup"):
         stage_a(a.workers, n_to)
     if a.step in ("all", "power", "topup"):
         stage_b(a.workers, n_to)
-    if a.step in ("all", "thin"):
+    if a.step == "wm":
+        stage_b(a.workers, n_to, LATER_WORLDS)
+    if a.step == "thin":
         thin(a.workers, min(a.panels, THIN_PANELS) if a.panels else THIN_PANELS)
     if a.step in ("all", "analyse", "topup"):
         import analyse3d2 as A
