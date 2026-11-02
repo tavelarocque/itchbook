@@ -37,7 +37,10 @@ jobs:
         run: ctest --preset ${{ matrix.preset }} -j 4
 
   python:
-    runs-on: ubuntu-24.04
+    # arm64, the architecture of the confirmatory run (Apple M2). One planted-bug test (P-F slope not snapped at
+    # numerical zero) relies on the +-3e-17 rounding noise an exactly flat input leaves in the OLS slope; on x86-64
+    # that noise comes out as exactly 0, so the mutant is invisible there. The frozen code is correct on both.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6

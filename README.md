@@ -142,7 +142,7 @@ and for the tests that were not rejected:
 
 > No non-rejection is reported as evidence against the paper. The measured power at reachable horizons does not support that reading.
 
-The run is reproduced bit for bit by `tools/est/phase4_repro.py` (see `data/phase4_repro/compare.md`).
+The run is reproduced bit for bit by `tools/est/phase4_repro.py` (see `data/phase4_repro/compare.md`). Bit-identity holds on the platform of the confirmatory run (arm64, Python 3.13.16, numpy 2.5.4); on other platforms the last bits of floating-point results can differ.
 
 To verify:
 
