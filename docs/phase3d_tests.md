@@ -151,10 +151,11 @@ through the T powers of Eqs. 71 and 72.
 `decide_pr(ends)`, `decide_pm(slope, top)`, `decide_pf(pf)`.
 
 **Other functions.**
-- `holm(pvals)`: keys must be (primary test, tick bin) pairs, so at most 12. P-K, P-C, a bare test name or an
-  unknown tick bin raise.
-- `combine(ev, pvals)`: refuses a p-value for a pair that left the family, and a family member without a
-  p-value.
+- `holm(pvals)`: keys must be (primary test, Q-T1 or Q-T3) pairs, so at most 8 (7.7). A Q-T2 pair, P-K,
+  P-C, a bare test name or an unknown tick bin raise. The step-down itself is `step_down`, which
+  `analyse3d2` also calls directly, only to reproduce the former 3-tick-bin family for comparison.
+- `combine(ev, pvals)`: refuses a p-value for a pair that left the family or for a Q-T2 pair, and a family
+  member without a p-value. Q-T2's pairs are listed under `descriptive`, never as members.
 - `select_range(Ns, rho)`: the reach rule. Its only inputs are day lengths and ceilings.
 - `PMParams(n_bins, l_max, L, min_runs_per_bin)`: validated against prereg3d (bins 3, 4 or 5; l_max 16 or 32;
   L >= 8 l_max). There is no default; Phase 3d-2 chooses.
@@ -247,8 +248,10 @@ at least 5 reach 32, else not evaluable (p = 1, every condition false).
 +-3e-17 from the OLS weights (Measurement), and a consistent sign across replicates would then reject flatness on
 rounding alone.
 
-**Holm (decision of 31 Oct 2026).** ONE family across all tick bins: the 4 tests x 3 tick bins give up to 12
-p-values, at family-wise 0.05.
+**Holm (decision of 31 Oct 2026; Q-T2 descriptive since 2 Nov 2026, 7.7).** ONE family across the tick bins
+Q-T1 and Q-T3 (`prereg3d.FAMILY_TICK_BINS`): the 4 tests x 2 tick bins give up to 8 p-values, at family-wise
+0.05. (Until 2 Nov 2026: all three tick bins, up to 12.) Q-T2's tests are computed and reported, never in
+Holm; their `rejected` and `passed` stay None.
 - Members are (test, tick bin) pairs. P-K and P-C cannot enter, and NaN counts as 1.
 - Ascending p; the i-th smallest is compared with 0.05/(m - i), with m the family size; stop at the first
   failure. Adjusted p-values are reported.
@@ -304,10 +307,11 @@ the repo; see section 6.
 | size-binned kernels beta = (0.6, 0.2, -0.3) | beta-hat (0.62, 0.20, -0.30); p_slope 9e-5, p_top 2e-5; both conditions hold |
 | iid signs, permanent impact eps q^psi (E[Delta_1 eps \| q] = q^psi), 8 stocks x 4 days x 4000 runs | psi-hat 0.314 for psi = 0.3, 0.628 for psi = 0.6 (within 0.03, the check's tolerance); the small upward bias comes from evaluating log E[q^psi] at the bin median |
 | G0 flow (psi = 0.5, sign memory, transient kernel), 10 x 6 x 1500 | psi-hat 0.537 (reported, not checked: the past runs' decaying impact adds a q-independent term) |
-| one Holm family, one p = 0.01 per tick bin, rest 0.5 | nothing rejected (0.01 > 0.05/12); per-bin Holm would reject three |
-| two pairs below the reach, p = 0.0048 elsewhere | family of 10, 0.0048 <= 0.005 rejected; kept with p = 1 (m = 12) it would not be |
-| an evaluable pair with p = 1 | stays: family of 12, so 0.0045 > 0.05/12 is not rejected |
-| run_primary on Q-T3 (3 cells) + Q-T2S3 (200-run days), no Q-T1 cell | family of 7: Q-T3 x 4, Q-T2 P-V/P-R/P-F on [4,32]; P-M of Q-T2 and all of Q-T1 left, with reasons; Q-T2's P-M never computed |
+| one Holm family over Q-T1 and Q-T3, one p = 0.01 per tick bin, rest 0.5 | nothing rejected (0.01 > 0.05/8); per-bin Holm would reject both |
+| Q-T2's pairs evaluable, p = 0.006 in Q-T1 (7.7) | family of 8, Q-T2 never a member (listed as descriptive); 0.006 <= 0.05/8 rejected; a Q-T2 pair or p-value refused |
+| two pairs below the reach, p = 0.008 elsewhere | family of 6, 0.008 <= 0.0083 rejected; kept with p = 1 (m = 8) it would not be |
+| an evaluable pair with p = 1 | stays: family of 8, so 0.0065 > 0.05/8 is not rejected |
+| run_primary on Q-T3 (3 cells) + Q-T2S3 (200-run days), no Q-T1 cell | family of 4: Q-T3 x 4; Q-T2 P-V/P-R/P-F computed on [4,32] as descriptive (rejected, passed None); all of Q-T1 left, with reasons; Q-T2's P-M never computed |
 
 ## 5. Tests and planted bugs
 
@@ -322,9 +326,9 @@ the repo; see section 6.
 
 | planted bug | mutated function | caught by |
 |---|---|---|
-| Holm sorted descending | `holm` | check_holm_order |
-| Holm as plain Bonferroni | `holm` | check_holm_order (P-F at 0.015: Holm 0.0167 rejects, Bonferroni 0.0125 does not) |
-| Holm not stopping at the first failure | `holm` | check_holm_order (P-V at 0.04 must stay unrejected) |
+| Holm sorted descending | `step_down` | check_holm_order |
+| Holm as plain Bonferroni | `step_down` | check_holm_order (P-F at 0.015: Holm 0.0167 rejects, Bonferroni 0.0125 does not) |
+| Holm not stopping at the first failure | `step_down` | check_holm_order (P-V at 0.04 must stay unrejected) |
 | Holm accepting a member that is not a (primary test, tick bin) pair | `holm` | check_holm_family_keys (P-K, P-C, bare name, unknown tick bin) |
 | Holm per tick bin instead of one family | `combine` | check_one_family_across_bins |
 | non-evaluable pair kept in the family with p = 1 | `combine` | check_nonevaluable_leaves_family |
@@ -389,7 +393,7 @@ and before any power result of Phase 3d-2.
 
 ### 7.2 Tie-aware size bins for P-M and psi-hat (Phase 3d-2b, Choice)
 
-Made from the pilot's bin occupancy (docs/phase3d2_report.md), before any power result.
+Made from the pilot's bin occupancy (docs/phase3d2a_report.md), before any power result.
 - **Rule** (`tie_bins(q, n_target, min_runs)`): on the sorted sizes, each of the n_target - 1 quantile cuts
   moves to the nearest boundary between distinct sizes (equal distance: the lower boundary). So every run of
   one size falls in one bin. Cuts that coincide drop out. Then the smallest bin (the first on ties) is merged
@@ -518,3 +522,38 @@ P-R's secondary, the analyse3d2 tables, the diag3d2b tables).
   `check_trim_keeps_retained`. Planted bugs: no flock; a shared lock; main not taking the lock; a chunk's
   panels not checked; a bad chunk left in place; trim keeping the wrong 6; trim not archiving the original.
   `check_design_rule` and `check_design_rule_ties_and_fallback` now use designs of the 6.
+
+### 7.7 Q-T2 leaves the confirmatory family (decided 2 Nov 2026)
+
+- **Decision.** Taken after Phase 3d-2 and before any real-data test. Q-T2 is descriptive. The Holm family
+  is the four primary tests in Q-T1 and Q-T3 only, up to 8 p-values (`prereg3d.FAMILY_TICK_BINS`;
+  `DESCRIPTIVE_TICK_BINS = ("Q-T2",)`).
+- **Reason.** Q-T2's only confirmatory cell, Q-T2S3, has 17 stocks. Phase 3d-2 measured near-zero power for
+  every test there:
+  - P-R passed in 0 of 200 W0 panels;
+  - P-M was never evaluable, because no 5 stocks reach L = 128;
+  - P-V had no power world in the study.
+- **What still runs.** Q-T2's unit (Q-T2S3 at its ceiling of 1/5) is still computed. Its tests and
+  statistics are reported with before-Holm rates only, and its p-values never enter Holm. `run_primary`
+  leaves Q-T2's `rejected` and `passed` as None, and `combine` lists Q-T2's pairs under `descriptive`.
+- **Unchanged.** Cells and ceilings (`CONFIRMATORY` keeps Q-T2S3, for its ceiling), worlds, panels, the four
+  tests, and the P-M design rule. The rule still averages WB's rate over all three tick bins. Q-T2 adds 0
+  for every design, because P-M is never evaluable there, so the choice b3_l16_L128_m50 is unchanged
+  (`report/design.json` is identical).
+- **The study, recomputed (Measurement; no new simulation).** `analyse3d2` recomputed the after-Holm tables
+  from the saved per-panel p-values under the 8-test family. Beside them it gives the former family, which
+  `step_down` rebuilt from the same p-values. That rebuild reproduces the archived 11-test tables in every
+  row (`report/family11/`). Results: `docs/phase3d2_report.md`.
+- **Checks.**
+  - `test_3d1.check_qt2_never_in_holm`: holm refuses a Q-T2 pair, and combine never makes one a member and
+    refuses a Q-T2 p-value.
+  - `check_run_primary`: Q-T2 is descriptive, with rejected and passed None.
+  - `test_3d2.check_analysis_family_without_qt2`: on saved records, a Q-T1 p of 0.006 is rejected in the
+    family of 8 and not in the former 11.
+- **Planted bugs.**
+  - holm accepting Q-T2 (the family check widened to every tick bin);
+  - combine making Q-T2 pairs members;
+  - run_primary passing Q-T2's p-values to the family;
+  - the analysis family over every tick bin;
+  - Q-T2 scored as part of the family;
+  - the holm and combine layers widened together (`test_planted_qt2_in_holm_both_layers_is_caught`).

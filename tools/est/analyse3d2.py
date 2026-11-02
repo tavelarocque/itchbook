@@ -5,7 +5,10 @@ family, bin occupancy of the real exploration flow, and the thinning changes. Wr
 
 Definitions (CHOICE, fixed with the rule before any study result):
 - "rejected before Holm": the pair is evaluable and its p <= 0.05;
-- "rejected after Holm": primary3d.combine's one family at the chosen P-M design rejects it;
+- "rejected after Holm": primary3d.combine's one family at the chosen P-M design rejects it. Since 2 Nov 2026
+  the family is Q-T1 and Q-T3 only (up to 8 pairs); Q-T2 is descriptive (before-Holm rates only). Beside it,
+  for comparison, the former family of all three tick bins (up to 12 pairs, 11 here as P-M never reaches in
+  Q-T2), recomputed from the same saved p-values with primary3d.step_down;
 - "passed": rejected after Holm AND every sub-condition (primary3d.set_decisions); for P-R this is the
   equivalence established;
 - a pair that left the family counts as not rejected; rates are over all panels, MC SE sqrt(r (1 - r) / n);
@@ -79,7 +82,9 @@ def chosen_design(write: bool = False) -> str:
 
 def family(rec_by_tb: dict, key: str) -> dict:
     """primary3d.combine over the panel's tick bins at P-M design `key`: evaluability from the reach rule as
-    saved (P-V, P-R, P-F) and from the design's P-M evaluability; p-values of the evaluable pairs only."""
+    saved (P-V, P-R, P-F) and from the design's P-M evaluability; p-values of the evaluable pairs of Q-T1 and
+    Q-T3 only (rejected, passed; None in Q-T2, which is descriptive). rejected_11, passed_11: the former
+    family of every tick bin given, from the same p-values (primary3d.step_down), for comparison only."""
     ev, pv, recs = {}, {}, {}
     for tb, r in rec_by_tb.items():
         pm = r["pm"][key]
@@ -91,19 +96,24 @@ def family(rec_by_tb: dict, key: str) -> dict:
         for t in C.PRIMARY_TESTS:
             if ev[tb][t]["evaluable"]:
                 pv[(t, tb)] = recs[tb][t]["p"]
-    fam = P.combine(ev, pv)
+    fam = P.combine(ev, {k: v for k, v in pv.items() if k[1] in C.FAMILY_TICK_BINS})
+    former = P.step_down(pv, ALPHA)
     dec = {}
     for t in C.PRIMARY_TESTS:
         for tb in rec_by_tb:
-            h = fam["holm"].get((t, tb))
+            h, h11 = fam["holm"].get((t, tb)), former.get((t, tb))
             rec = recs[tb].get(t, {})
             conds = rec.get("conditions", {})
+            ok = bool(conds) and all(conds.values())
+            in_fam = tb in C.FAMILY_TICK_BINS
             dec[(t, tb)] = {"evaluable": ev[tb][t]["evaluable"],
-                            "raw": bool(h is not None and rec["p"] <= ALPHA),
-                            "rejected": bool(h and h["rejected"]),
-                            "passed": bool(h and h["rejected"] and conds and all(conds.values())),
+                            "raw": bool(h11 is not None and rec["p"] <= ALPHA),
+                            "rejected": bool(h and h["rejected"]) if in_fam else None,
+                            "passed": bool(h and h["rejected"] and ok) if in_fam else None,
+                            "rejected_11": bool(h11 and h11["rejected"]),
+                            "passed_11": bool(h11 and h11["rejected"] and ok),
                             "range": tuple(rec["range_used"]) if rec.get("range_used") else None}
-    return {"decisions": dec, "family_size": len(fam["family"])}
+    return {"decisions": dec, "family_size": len(fam["family"]), "family_size_11": len(former)}
 
 
 def rate(x) -> tuple[float, float, int]:
@@ -117,17 +127,20 @@ def fmt_rate(r) -> str:
     return "-" if not np.isfinite(r[0]) else f"{r[0]:.3f} ({r[1]:.3f})"
 
 
-def correct_rate(world: str, test: str, decs: list) -> tuple | None:
+def correct_rate(world: str, test: str, decs: list, family: str = "") -> tuple | None:
+    """Share of panels with the world's correct outcome; family "" (Q-T1 and Q-T3) or "_11" (former). None
+    when unlabelled or descriptive (Q-T2 in the family)."""
     lab = W.CORRECT[world][test]
-    if lab is None:
+    rej, pas = "rejected" + family, "passed" + family
+    if lab is None or any(d[rej] is None for d in decs):
         return None
     if lab == "no reject":
-        return rate([not d["rejected"] for d in decs])
+        return rate([not d[rej] for d in decs])
     if lab == "reject":
-        return rate([d["passed"] for d in decs])
+        return rate([d[pas] for d in decs])
     if lab == "pass":
-        return rate([d["passed"] for d in decs])
-    return rate([not d["passed"] for d in decs])  # "fail"
+        return rate([d[pas] for d in decs])
+    return rate([not d[pas] for d in decs])  # "fail"
 
 
 def world_table(world: str, key: str) -> dict:
@@ -140,22 +153,30 @@ def world_table(world: str, key: str) -> dict:
         for tb in C.TICK_BINS:
             decs = [f["decisions"][(t, tb)] for f in fams]
             rng = [d["range"] for d in decs if d["evaluable"]]
+            in_fam = tb in C.FAMILY_TICK_BINS
             out["rows"][(t, tb)] = {
                 "evaluable": rate([d["evaluable"] for d in decs]),
                 "raw": rate([d["raw"] for d in decs]),
-                "holm": rate([d["rejected"] for d in decs]),
-                "passed": rate([d["passed"] for d in decs]),
+                "holm": rate([d["rejected"] for d in decs]) if in_fam else None,
+                "passed": rate([d["passed"] for d in decs]) if in_fam else None,
                 "correct": correct_rate(world, t, decs),
+                "holm_11": rate([d["rejected_11"] for d in decs]),
+                "passed_11": rate([d["passed_11"] for d in decs]),
+                "correct_11": correct_rate(world, t, decs, "_11"),
                 "range_8_64": sum(r == (8, 64) for r in rng), "range_4_32": sum(r == (4, 32) for r in rng),
                 "left": sum(not d["evaluable"] for d in decs),
             }
     nulls = [t for t in C.PRIMARY_TESTS if W.CORRECT[world][t] == "no reject"]
     if nulls:
-        out["fwer"] = rate([any(f["decisions"][(t, tb)]["rejected"] for t in nulls for tb in C.TICK_BINS)
+        out["fwer"] = rate([any(f["decisions"][(t, tb)]["rejected"] for t in nulls for tb in C.FAMILY_TICK_BINS)
                             for f in fams])
+        out["fwer_11"] = rate([any(f["decisions"][(t, tb)]["rejected_11"] for t in nulls for tb in C.TICK_BINS)
+                               for f in fams])
         out["fwer_tests"] = nulls
-        out["any_rejection"] = rate([any(d["rejected"] for d in f["decisions"].values()) for f in fams])
+    out["any_rejection"] = rate([any(d["rejected"] for d in f["decisions"].values()) for f in fams])
+    out["any_rejection_11"] = rate([any(d["rejected_11"] for d in f["decisions"].values()) for f in fams])
     out["family_size"] = float(np.mean([f["family_size"] for f in fams])) if fams else np.nan
+    out["family_size_11"] = float(np.mean([f["family_size_11"] for f in fams])) if fams else np.nan
     out["stats"] = stat_means(st, pan, key)
     return out
 
@@ -256,6 +277,9 @@ def thinning_table(key: str) -> list[dict]:
                 continue
             row = {"setting": s, "tick_bin": tb, "panels": len(pan)}
             for t in C.PRIMARY_TESTS:
+                if tb not in C.FAMILY_TICK_BINS:  # descriptive: no rejection
+                    row[f"{t} rej"] = row[f"{t} rej change"] = None
+                    continue
                 row[f"{t} rej"] = rate([cur[i][(t, tb)]["rejected"] for i in pan])
                 row[f"{t} rej change"] = row[f"{t} rej"][0] - rate([base[i][(t, tb)]["rejected"] for i in pan])[0]
             for test, nm in THIN_STATS:
@@ -269,6 +293,10 @@ def thinning_table(key: str) -> list[dict]:
 
 
 # ---- report -----------------------------------------------------------------------------------------------
+
+
+def _cell(r, descriptive: bool = False) -> str:
+    return "descriptive" if descriptive else (fmt_rate(r) if r else "-")
 
 
 def analyse(log=print) -> dict:
@@ -292,18 +320,25 @@ def analyse(log=print) -> dict:
             continue
         t = world_table(w, key)
         res["worlds"][w] = t
-        L += ["", f"## {w} ({t['panels']} panels, mean family size {t['family_size']:.2f})", "",
+        L += ["", f"## {w} ({t['panels']} panels, mean family size {t['family_size']:.2f}; former family "
+              f"{t['family_size_11']:.2f})", "",
+              "Each after-Holm cell: the family of Q-T1 and Q-T3 (2 Nov 2026) / the former family of all three tick "
+              "bins, on the same saved p-values. Q-T2 is descriptive in the family.", "",
               "| test | tick bin | evaluable | before Holm | after Holm | passed | correct outcome | rate correct | "
               "[8,64] / [4,32] | left |", "|---|---|---|---|---|---|---|---|---|---|"]
         for (te, tb), r in t["rows"].items():
             lab = W.CORRECT[w][te] or W.BY_CONSTRUCTION.get((w, te))
             rng_txt = "lags" if te == "P-M" else f"{r['range_8_64']} / {r['range_4_32']}"
-            L.append(f"| {te} | {tb} | {r['evaluable'][0]:.2f} | {fmt_rate(r['raw'])} | {fmt_rate(r['holm'])} | "
-                     f"{fmt_rate(r['passed'])} | {lab or 'none'} | {fmt_rate(r['correct']) if r['correct'] else '-'} | "
-                     f"{rng_txt} | {r['left']} |")
+            desc = tb not in C.FAMILY_TICK_BINS
+            L.append(f"| {te} | {tb} | {r['evaluable'][0]:.2f} | {fmt_rate(r['raw'])} | "
+                     f"{_cell(r['holm'], desc)} / {_cell(r['holm_11'])} | "
+                     f"{_cell(r['passed'], desc)} / {_cell(r['passed_11'])} | {lab or 'none'} | "
+                     f"{_cell(r['correct'], desc)} / {_cell(r['correct_11'])} | {rng_txt} | {r['left']} |")
         if t["fwer"]:
-            L.append(f"\nFamily-wise error ({', '.join(t['fwer_tests'])}, any tick bin, after Holm): "
-                     f"{fmt_rate(t['fwer'])}; any rejection in the family incl. P-R: {fmt_rate(t['any_rejection'])}")
+            L.append(f"\nFamily-wise error ({', '.join(t['fwer_tests'])}, after Holm): Q-T1 and Q-T3 family "
+                     f"{fmt_rate(t['fwer'])}; former family, any tick bin {fmt_rate(t['fwer_11'])}.")
+        L.append(f"\nAny rejection in the family incl. P-R: {fmt_rate(t['any_rejection'])}; former family "
+                 f"{fmt_rate(t['any_rejection_11'])}.")
         L += ["", "| tick bin | statistic | mean | SD over panels | panels |", "|---|---|---|---|---|"]
         for tb, sv in t["stats"].items():
             for k, v in sv.items():
@@ -329,7 +364,8 @@ def analyse(log=print) -> dict:
               "|---|---|---|" + "---|" * (len(C.PRIMARY_TESTS) + len(THIN_STATS))]
         for r in th:
             L.append(f"| {r['setting']} | {r['tick_bin']} | {r['panels']} | " + " | ".join(
-                f"{r[f'{t} rej'][0]:.2f} ({r[f'{t} rej change']:+.2f})" for t in C.PRIMARY_TESTS) + " | " + " | ".join(
+                "descriptive" if r[f"{t} rej"] is None else f"{r[f'{t} rej'][0]:.2f} ({r[f'{t} rej change']:+.2f})"
+                for t in C.PRIMARY_TESTS) + " | " + " | ".join(
                 "-" if not r[f"{a} {b} change"] else f"{r[f'{a} {b} change'][0]:+.3f} ({r[f'{a} {b} change'][1]:.3f})"
                 for a, b in THIN_STATS) + " |")
         L.append(f"\nP-R psi_hat: {P.PSI_NOTE}.")
@@ -361,7 +397,9 @@ def pilot_tables(log=print) -> str:
             for tb in C.TICK_BINS:
                 decs = [f["decisions"][(t, tb)] for f in fams]
                 cr = correct_rate(w, t, decs)
-                ev, raw, hol, pas = (rate([d[k] for d in decs]) for k in ("evaluable", "raw", "rejected", "passed"))
+                ev, raw = (rate([d[k] for d in decs]) for k in ("evaluable", "raw"))
+                hol, pas = ((rate([d[k] for d in decs]) if tb in C.FAMILY_TICK_BINS else (np.nan, np.nan, 0))
+                            for k in ("rejected", "passed"))
                 L.append(f"| {w} | {t} | {tb} | {ev[0]:.1f} | {fmt_rate(raw)} | {fmt_rate(hol)} | {fmt_rate(pas)} | "
                          f"{W.CORRECT[w][t] or W.BY_CONSTRUCTION.get((w, t)) or 'none'} | "
                          f"{fmt_rate(cr) if cr else '-'} |")

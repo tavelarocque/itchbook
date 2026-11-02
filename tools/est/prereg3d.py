@@ -10,6 +10,10 @@ Fixed by the pre-registration (implemented, not revisited here):
 - Holm-Bonferroni at family-wise 0.05 over exactly P-V, P-R, P-M, P-F; P-K and P-C descriptive.
 Decided 31 Oct 2026 (docs/phase3d_tests.md): P-R is the equivalence test a*(T) in 1/2 +- 0.15 at both ends
 of the range used.
+Decided 2 Nov 2026, before any real-data test (docs/phase3d_tests.md 7.7): Q-T2 leaves the confirmatory
+family and is descriptive. The Holm family is the four tests in Q-T1 and Q-T3 only (FAMILY_TICK_BINS, at
+most 8 p-values). Q-T2's unit (its one cell Q-T2S3, which keeps its ceiling) is still computed and reported,
+and never enters Holm.
 """
 from __future__ import annotations
 
@@ -24,7 +28,9 @@ CONFIRMATORY = {
     "Q-T3S3": 1 / 10,
 }
 DESCRIPTIVE_CELLS = ("Q-T1S3", "Q-T2S1", "Q-T2S2")
-TICK_BINS = ("Q-T1", "Q-T2", "Q-T3")
+TICK_BINS = ("Q-T1", "Q-T2", "Q-T3")  # every tick bin computed (simulation, seeds, reports)
+FAMILY_TICK_BINS = ("Q-T1", "Q-T3")  # the tick bins of the one Holm family (2 Nov 2026)
+DESCRIPTIVE_TICK_BINS = tuple(tb for tb in TICK_BINS if tb not in FAMILY_TICK_BINS)  # Q-T2
 
 
 def tick_bin(cell: str) -> str:

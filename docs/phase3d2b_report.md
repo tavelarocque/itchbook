@@ -325,7 +325,7 @@ drift.
    attenuated to about 45 % of the generator's at both horizons.
 3. **psi-hat's residual +0.02 to +0.05 without sign memory.** A Jensen effect of the merged bins is a
    candidate. It was not isolated.
-4. **The 3d-2 pilot numbers predate the redefined W-null and the tie-aware bins.** `docs/phase3d2_report.md`
+4. **The 3d-2 pilot numbers predate the redefined W-null and the tie-aware bins.** `docs/phase3d2a_report.md`
    now says so. The full study was not started.
 
 ## 6. Reproduce

@@ -21,10 +21,12 @@ methods' p-values, the conservative counterpart of the widest interval. Percenti
 replicates on the null side (two-sided: twice the smaller share). Jackknife: Student t at D - 1 df. An
 undefined estimate has p = 1.
 
-Family (run_primary, decided 31 Oct 2026): ONE Holm family at family-wise 0.05 over the (test, tick bin)
-pairs, up to 4 x 3 = 12. A pair that is not evaluable by the reach rule alone (evaluability: day lengths and
-ceilings, never an estimate) leaves the family before any p-value is computed (it is not computed at all) and
-is logged with its reason. A pair that is evaluable but whose statistic turns out undefined stays, p = 1.
+Family (run_primary, decided 31 Oct 2026; Q-T2 descriptive since 2 Nov 2026): ONE Holm family at family-wise
+0.05 over the (test, tick bin) pairs of Q-T1 and Q-T3 (prereg3d.FAMILY_TICK_BINS), up to 4 x 2 = 8. Q-T2 is
+computed and reported but never enters Holm (its rejected and passed stay None). A pair that is not
+evaluable by the reach rule alone (evaluability: day lengths and ceilings, never an estimate) leaves the
+family before any p-value is computed (it is not computed at all) and is logged with its reason.
+A pair that is evaluable but whose statistic turns out undefined stays, p = 1.
 
 The tests (each returns a TestResult; run_primary's Holm then sets rejected and passed):
   P-V  (i) leave-one-day-out model comparison on log v_a(T): M2 must beat M1 and M3. (ii) the slope in a,
@@ -329,7 +331,7 @@ class TestResult:
     stocks_used: dict
     by_range: dict = field(default_factory=dict)  # both ranges, reported
     secondary: dict = field(default_factory=dict)  # reported only, never in Holm
-    rejected: bool | None = None  # set by run_primary (one Holm family)
+    rejected: bool | None = None  # set by run_primary (one Holm family); None for Q-T2 (descriptive)
     passed: bool | None = None
 
     @property
@@ -339,12 +341,18 @@ class TestResult:
 
 def holm(pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
     """Holm-Bonferroni over ONE family of (test, tick bin) pairs, tests among the four primary tests and tick
-    bins among prereg3d.TICK_BINS (so at most 12 members; P-K, P-C or a bare test name raise). Ascending p;
-    the i-th smallest (i = 0..m-1) is compared with alpha / (m - i); stop at the first that fails. A NaN p
-    counts as 1."""
+    bins among prereg3d.FAMILY_TICK_BINS (Q-T1, Q-T3: at most 8 members; a Q-T2 pair, P-K, P-C or a bare test
+    name raise). Ascending p; the i-th smallest (i = 0..m-1) is compared with alpha / (m - i); stop at the
+    first that fails. A NaN p counts as 1."""
     for k in pvals:
-        if not (isinstance(k, tuple) and len(k) == 2 and k[0] in C.PRIMARY_TESTS and k[1] in C.TICK_BINS):
-            raise ValueError(f"Holm family members are (primary test, tick bin) pairs, got {k!r}")
+        if not (isinstance(k, tuple) and len(k) == 2 and k[0] in C.PRIMARY_TESTS and k[1] in C.FAMILY_TICK_BINS):
+            raise ValueError(f"Holm family members are (primary test, Q-T1 or Q-T3) pairs, got {k!r}")
+    return step_down(pvals, alpha)
+
+
+def step_down(pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
+    """Holm's step-down on any keys, without the family check. holm uses it; analyse3d2 calls it directly
+    only to reproduce the former 3-tick-bin family (up to 12 members) for comparison."""
     names = list(pvals)
     p = np.array([1.0 if not np.isfinite(pvals[k]) else float(pvals[k]) for k in names])
     m = len(p)
@@ -378,11 +386,14 @@ def evaluability(Ns: np.ndarray, rho: np.ndarray, pm: PMParams) -> dict:
 
 
 def combine(ev: dict, pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
-    """The combining step: ONE Holm family across tick bins. ev {tick bin: evaluability(...)}, decided before
-    any p-value; a pair that is not evaluable leaves the family and is logged with its reason. pvals
-    {(test, tick bin): p} must hold exactly the evaluable pairs (a p-value for a pair that left means it
-    was computed, which is refused)."""
-    pairs = [(t, tb) for tb in ev for t in C.PRIMARY_TESTS]
+    """The combining step: ONE Holm family across the family's tick bins (prereg3d.FAMILY_TICK_BINS).
+    ev {tick bin: evaluability(...)}, decided before any p-value; a pair that is not evaluable leaves the
+    family and is logged with its reason. A pair of a descriptive tick bin (Q-T2) is never a member; it is
+    listed under 'descriptive' with its evaluability. pvals {(test, tick bin): p} must hold exactly the
+    evaluable members (a p-value for any other pair, Q-T2's included, is refused)."""
+    pairs = [(t, tb) for tb in ev if tb in C.FAMILY_TICK_BINS for t in C.PRIMARY_TESTS]
+    descriptive = [{"test": t, "tick_bin": tb, "evaluable": ev[tb][t]["evaluable"], "reason": ev[tb][t]["reason"]}
+                   for tb in ev if tb not in C.FAMILY_TICK_BINS for t in C.PRIMARY_TESTS]
     members = [k for k in pairs if ev[k[1]][k[0]]["evaluable"]]
     left = [{"test": t, "tick_bin": tb, "reason": ev[tb][t]["reason"]} for t, tb in pairs if (t, tb) not in members]
     extra = sorted(set(pvals) - set(members))
@@ -392,7 +403,7 @@ def combine(ev: dict, pvals: dict, alpha: float = C.ALPHA_FW) -> dict:
     if missing:
         raise ValueError(f"no p-value for family members {missing}")
     h = holm({k: pvals[k] for k in members}, alpha)
-    return {"family": members, "left": left, "holm": h}
+    return {"family": members, "left": left, "holm": h, "descriptive": descriptive}
 
 
 # ---- decision layers (pure functions of replicates) ----------------------------------------------------------
@@ -1037,8 +1048,10 @@ def run_cell(flows: dict, cell: str, pm: PMParams, rng: np.random.Generator, **k
 
 def run_primary(flows: dict, pm: PMParams, rng: np.random.Generator, **kw) -> dict:
     """The primary analysis. For every tick bin: its unit, then evaluability by the reach rule alone, then
-    ONLY the evaluable tests are computed. One Holm family over all evaluable (test, tick bin) pairs at
-    family-wise 0.05; the pairs that left are logged with their reason. Sets rejected and passed."""
+    ONLY the evaluable tests are computed. One Holm family over the evaluable (test, tick bin) pairs of
+    Q-T1 and Q-T3 at family-wise 0.05; the pairs that left are logged with their reason. Sets rejected and
+    passed. Q-T2 is computed the same way but is descriptive: its p-values never enter Holm, and its
+    rejected and passed stay None."""
     ev, out = {}, {}
     for tb in C.TICK_BINS:
         if not any(C.tick_bin(c) == tb and c in C.CONFIRMATORY for c in flows):
@@ -1048,7 +1061,7 @@ def run_primary(flows: dict, pm: PMParams, rng: np.random.Generator, **kw) -> di
         u = tick_bin_unit(flows, tb)
         ev[tb] = evaluability(u.Ns, u.rho, pm)
         out[tb] = run_unit(u, pm, rng, tests=tuple(t for t in C.PRIMARY_TESTS if ev[tb][t]["evaluable"]), **kw)
-    pvals = {(t, tb): out[tb]["tests"][t].p for tb in out for t in out[tb]["tests"]}
+    pvals = {(t, tb): out[tb]["tests"][t].p for tb in out if tb in C.FAMILY_TICK_BINS for t in out[tb]["tests"]}
     fam = combine(ev, pvals)
     set_decisions(out, fam["holm"])
     return {"by_tick_bin": out, "evaluability": ev, **fam}

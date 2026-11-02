@@ -492,6 +492,41 @@ def check_pr_uses_local_vertex():
         assert t.by_range[rn]["censored"] == [None, None]
 
 
+# ---- the family: Q-T1 and Q-T3 only (2 Nov 2026) --------------------------------------------------------
+
+
+def toy_tick_bin(ps: dict, pm_ok: bool, key: str) -> dict:
+    """A saved tick-bin record: P-V, P-R, P-F evaluable with the given p and every condition met; P-M at
+    design key evaluable or not (p = 0.5)."""
+    return {"evaluability": {t: {"evaluable": True, "reason": "reach"} for t in ("P-V", "P-R", "P-F")},
+            "tests": {t: {"p": ps.get(t, 0.5), "conditions": {"c": True}, "range_used": [8, 64]}
+                      for t in ("P-V", "P-R", "P-F")},
+            "pm": {key: {"evaluable": pm_ok, "reason": "reach", **({"p": 0.5, "conditions": {"c": True}}
+                                                                     if pm_ok else {})}}}
+
+
+def check_analysis_family_without_qt2():
+    """analyse3d2.family on saved records: Q-T2 is descriptive (rejected, passed None; its raw rate kept),
+    the family has the 8 pairs of Q-T1 and Q-T3, and P-R in Q-T1 at p = 0.006 is rejected and passed
+    (<= 0.05/8). The former family (_11) holds Q-T2's three evaluable pairs too, m = 11, so the same p is
+    not rejected there (0.006 > 0.05/11). correct_rate is None for Q-T2 and scored for the former family."""
+    key = W.design_key(D.DEFAULT_PM)
+    recs = {"Q-T1": toy_tick_bin({"P-R": 0.006}, True, key), "Q-T2": toy_tick_bin({"P-F": 0.01}, False, key),
+            "Q-T3": toy_tick_bin({}, True, key)}
+    f = A.family(recs, key)
+    assert f["family_size"] == 8 and f["family_size_11"] == 11
+    d = f["decisions"]
+    assert d[("P-R", "Q-T1")]["rejected"] and d[("P-R", "Q-T1")]["passed"]
+    assert not d[("P-R", "Q-T1")]["rejected_11"] and not d[("P-R", "Q-T1")]["passed_11"]
+    for t in C.PRIMARY_TESTS:
+        assert d[(t, "Q-T2")]["rejected"] is None and d[(t, "Q-T2")]["passed"] is None
+        assert d[(t, "Q-T2")]["rejected_11"] is False
+    assert d[("P-F", "Q-T2")]["raw"] and not d[("P-M", "Q-T2")]["evaluable"]
+    assert A.correct_rate("W0", "P-R", [d[("P-R", "Q-T2")]]) is None
+    assert A.correct_rate("W0", "P-R", [d[("P-R", "Q-T2")]], "_11") == (0.0, 0.0, 1)
+    assert A.correct_rate("W0", "P-R", [d[("P-R", "Q-T1")]]) == (1.0, 0.0, 1)
+
+
 # ---- one instance at a time, chunk integrity, trimming ---------------------------------------------------
 
 
@@ -624,8 +659,8 @@ CHECKS = {f.__name__: f for f in [
     check_wb_beta_and_impact, check_semi_response_direct, check_semi_flow_unchanged, check_wm_burn,
     check_tick_bin_matches_run_primary, check_m3_short_days, check_tie_bins, check_coin_informed,
     check_long_unit_matches_run_unit, check_astar_local, check_astar_censored, check_pr_uses_local_vertex,
-    check_design_grid, check_lock_refuses_second, check_main_takes_lock, check_verify_chunk,
-    check_trim_keeps_retained,
+    check_design_grid, check_analysis_family_without_qt2, check_lock_refuses_second, check_main_takes_lock,
+    check_verify_chunk, check_trim_keeps_retained,
 ]}
 
 
@@ -660,11 +695,11 @@ BUGS = [
         "obs = [thin_day(day, s, r) for s, r in zip(settings, thin_rngs, strict=True)]",
         "obs = [thin_day(day, settings[j], rng) if j in keep else day for j in range(len(settings))]",
         ("check_thin_settings_paired",)),
-    Bug("pass and fail swapped in the P-R label", A, "correct_rate", 'return rate([not d["passed"] for d in decs])',
-        'return rate([d["passed"] for d in decs])', ("check_world_labels",)),
+    Bug("pass and fail swapped in the P-R label", A, "correct_rate", "return rate([not d[pas] for d in decs])",
+        "return rate([d[pas] for d in decs])", ("check_world_labels",)),
     Bug("reject counted without the conditions", A, "correct_rate",
-        'if lab == "reject":\n        return rate([d["passed"] for d in decs])',
-        'if lab == "reject":\n        return rate([d["rejected"] for d in decs])', ("check_world_labels",)),
+        'if lab == "reject":\n        return rate([d[pas] for d in decs])',
+        'if lab == "reject":\n        return rate([d[rej] for d in decs])', ("check_world_labels",)),
     Bug("W0-psi3 generated at psi = 0.5", W, "world_spec",
         '"W0-psi3": {"flow": "real", "signs": "real", "gen": "G0", "psi": 0.3}',
         '"W0-psi3": {"flow": "real", "signs": "real", "gen": "G0", "psi": PSI}', ("check_world_specs",)),
@@ -720,6 +755,12 @@ BUGS = [
     Bug("a*: censored end treated as interior (P-R decision)", P, "decide_pr",
         "cens = np.zeros(2) if cens is None else np.asarray(cens)", "cens = np.zeros(2)",
         ("check_astar_censored",)),
+    Bug("analysis family over every tick bin (Q-T2 in Holm)", A, "family",
+        "fam = P.combine(ev, {k: v for k, v in pv.items() if k[1] in C.FAMILY_TICK_BINS})",
+        'fam = {"holm": P.step_down(pv, ALPHA), "family": list(pv)}', ("check_analysis_family_without_qt2",)),
+    Bug("Q-T2 scored as part of the family", A, "family",
+        '"rejected": bool(h and h["rejected"]) if in_fam else None,', '"rejected": bool(h and h["rejected"]),',
+        ("check_analysis_family_without_qt2",)),
     Bug("lock never taken (no flock)", D, "acquire_lock", "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)", "pass",
         ("check_lock_refuses_second", "check_main_takes_lock")),
     Bug("lock taken blocking-free but shared", D, "acquire_lock", "fcntl.LOCK_EX | fcntl.LOCK_NB",
