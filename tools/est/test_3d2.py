@@ -8,6 +8,12 @@ input is synthetic; no data file is read (the WM test replaces panel3c.day_lengt
 from __future__ import annotations
 
 import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -92,7 +98,7 @@ def check_design_rule():
     """Highest WB rate among designs within 0.05 + 2 MC SE in BOTH size worlds, in every tick bin. The worlds
     disagree on purpose: W0's highest rate is another design, W-null alone excludes one design and W0 alone
     (in one tick bin) another."""
-    k_best, k_w0, k_null, k_one = "b5_l32_L256_m20", "b3_l16_L128_m50", "b4_l16_L128_m20", "b4_l32_L256_m50"
+    k_best, k_w0, k_null, k_one = "b5_l32_L256_m50", "b3_l16_L128_m50", "b4_l16_L128_m50", "b4_l32_L256_m50"
     rates = toy_rates({k_best: 0.6, k_null: 0.9, k_one: 0.8}, {k_best: 0.0, k_w0: 0.045},
                       default_null=0.01)
     for tb in C.TICK_BINS:
@@ -108,15 +114,27 @@ def check_design_rule():
 def check_design_rule_ties_and_fallback():
     keys = [W.design_key(d) for d in W.PM_DESIGNS]
     out = W.choose_design(toy_rates({k: 0.5 for k in keys}, {}), N200)
-    assert out["chosen"] == "b3_l16_L128_m20"  # every rate equal: fewer bins, then l_max, then min runs
-    tie = {"b5_l16_L128_m20": 0.7, "b4_l32_L256_m100": 0.7}
-    assert W.choose_design(toy_rates(tie, {}), N200)["chosen"] == "b4_l32_L256_m100"
+    assert out["chosen"] == "b3_l16_L128_m50"  # every rate equal: fewer bins, then l_max
+    tie = {"b5_l16_L128_m50": 0.7, "b4_l32_L256_m50": 0.7}
+    assert W.choose_design(toy_rates(tie, {}), N200)["chosen"] == "b4_l32_L256_m50"
     worst = toy_rates({}, {k: 0.3 for k in keys})
     for tb in C.TICK_BINS:
         for w in W.SIZE_WORLDS:
-            worst[(w, "b5_l32_L256_m100", tb)] = 0.12
+            worst[(w, "b5_l32_L256_m50", tb)] = 0.12
     out = W.choose_design(worst, N200)
-    assert out["chosen"] is None and out["fallback"] == "b5_l32_L256_m100"
+    assert out["chosen"] is None and out["fallback"] == "b5_l32_L256_m50"
+
+
+def check_design_grid():
+    """The 6 designs of 1 Nov 2026: bins {3, 4, 5} x l_max {16, 32}, L = 8 l_max, min runs per bin 50; the
+    rule and stage A run over exactly these."""
+    got = {(d.n_bins, d.l_max, d.L, d.min_runs_per_bin) for d in W.PM_DESIGNS}
+    assert len(W.PM_DESIGNS) == 6 and got == {(nb, lm, 8 * lm, 50) for nb in (3, 4, 5) for lm in (16, 32)}
+    assert set(W.PM_DESIGNS) < set(W.PM_DESIGNS_18) and len(W.PM_DESIGNS_18) == 18
+    keys = [W.design_key(d) for d in W.PM_DESIGNS]
+    assert set(W.choose_design(toy_rates({}, {}), N200)["admissible"]) == set(keys)
+    js = D.study_jobs({}, {"W0": 4}, keys, ("W0",))
+    assert all(j[4] == tuple(keys) for j in js) and len(js) == 6
 
 
 # ---- thinning ----------------------------------------------------------------------------------------------
@@ -474,12 +492,140 @@ def check_pr_uses_local_vertex():
         assert t.by_range[rn]["censored"] == [None, None]
 
 
+# ---- one instance at a time, chunk integrity, trimming ---------------------------------------------------
+
+
+def _refused(out: Path) -> bool:
+    try:
+        D.acquire_lock(out).close()
+    except SystemExit as e:
+        return "another phase3d2 run holds" in str(e)
+    return False
+
+
+def check_lock_refuses_second():
+    """While one holder keeps the lock, a second acquire on the same directory exits; once the holder closes,
+    or its process dies without releasing, the lock is free again."""
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        held = D.acquire_lock(out)
+        assert _refused(out)
+        assert f"pid {os.getpid()}" in (out / D.LOCK_NAME).read_text()
+        held.close()
+        assert not _refused(out)
+        code = f"import os, phase3d2 as D; from pathlib import Path; D.acquire_lock(Path({td!r})); os._exit(0)"
+        subprocess.run([sys.executable, "-c", code], cwd=Path(D.__file__).parent, check=True)
+        assert not _refused(out)  # a dead holder leaves no stale lock
+
+
+def check_main_takes_lock():
+    """main refuses to run any step while another instance holds the output directory's lock: in this
+    process (D.main) and from a second process (the command line)."""
+    with tempfile.TemporaryDirectory() as td:
+        out, saved = Path(td), D.OUT
+        held = D.acquire_lock(out)
+        try:
+            D.OUT = out
+            try:
+                D.main(["check"])
+                refused = False
+            except SystemExit as e:
+                refused = "another phase3d2 run holds" in str(e)
+            assert refused and not (out / "study").exists()
+        finally:
+            D.OUT = saved
+        env = {**os.environ, "PHASE3D2_OUT": td}
+        r = subprocess.run([sys.executable, "phase3d2.py", "check"], cwd=Path(D.__file__).parent, env=env,
+                           capture_output=True, text=True)
+        assert r.returncode != 0 and "another phase3d2 run holds" in r.stderr, r.stderr
+        held.close()
+        r = subprocess.run([sys.executable, "phase3d2.py", "check"], cwd=Path(D.__file__).parent, env=env,
+                           capture_output=True, text=True)
+        assert r.returncode == 0 and "0 quarantined" in r.stdout, r.stderr
+
+
+def toy_chunk(start: int, keys, tb: str = "Q-T1") -> list[dict]:
+    ev = {"P-V": {"evaluable": True}, "P-R": {"evaluable": False}, "P-F": {"evaluable": True}}
+    return [{"tick_bin": tb, "n_stocks": 2, "Ns": [10, 20], "rho": [0.1, 0.2], "evaluability": ev,
+             "tests": {"P-V": {"p": 0.3}, "P-F": {"p": 1.0}},
+             "pm": {k: {"evaluable": True, "p": 0.01 * (j + 1), "conditions": {"slope": True}}
+                    for j, k in enumerate(keys)}, "panel": i, "seconds": {"generate": 1.0}}
+            for i in range(start, start + D.CHUNK_PANELS)]
+
+
+def check_verify_chunk():
+    """A complete chunk passes (6 designs, or all 18 of the old grid); a truncated one, one with a wrong
+    panel, a missing design, an evaluable test without p, a name that is no job and a leftover .tmp are all
+    caught, and check_study moves each of them, and only them, to quarantine."""
+    keep = [W.design_key(d) for d in W.PM_DESIGNS]
+    old = [W.design_key(d) for d in W.PM_DESIGNS_18]
+    with tempfile.TemporaryDirectory() as td:
+        st = Path(td) / "study"
+        st.mkdir()
+        good = {"W0_Q-T1_004.json": toy_chunk(4, keep), "W-null_Q-T1_000.json": toy_chunk(0, old),
+                "W0-psi3_Q-T3_002.json": toy_chunk(2, keep[:1], "Q-T3")}
+        for name, recs in good.items():
+            (st / name).write_text(json.dumps(recs))
+            assert D.verify_chunk(st / name) == [], name
+        bad = {}
+        txt = json.dumps(toy_chunk(6, keep))
+        bad["W0_Q-T1_006.json"] = txt[: len(txt) // 2]
+        r = toy_chunk(8, keep)
+        r[1]["panel"] = 8
+        bad["W0_Q-T1_008.json"] = json.dumps(r)
+        r = toy_chunk(10, keep)
+        del r[0]["pm"][keep[3]]
+        bad["W0_Q-T1_010.json"] = json.dumps(r)
+        r = toy_chunk(12, keep)
+        r[1]["tests"]["P-F"]["p"] = None
+        bad["W0_Q-T1_012.json"] = json.dumps(r)
+        bad["W0_Q-T1_004 2.json"] = json.dumps(toy_chunk(4, keep))
+        bad["W0_Q-T1_014.json"] = json.dumps(toy_chunk(14, keep)[:1])
+        for name, t in bad.items():
+            (st / name).write_text(t)
+            assert D.verify_chunk(st / name), name
+        (st / "W0_Q-T1_016.tmp").write_text("[")
+        res = D.check_study(Path(td), log=lambda *a, **k: None)
+        assert res["complete"] == len(good) and res["quarantined"] == len(bad) + 1
+        assert sorted(p.name for p in st.iterdir()) == sorted(good)
+        q = Path(res["quarantine"])
+        assert sorted(p.name for p in q.iterdir() if p.name != "reasons.json") == sorted([*bad, "W0_Q-T1_016.tmp"])
+
+
+def check_trim_keeps_retained():
+    """trim keeps exactly the 6 retained designs of an 18-design chunk, every value unchanged, archives the
+    original byte for byte, leaves a W0-psi3 chunk and an already trimmed chunk alone, and is idempotent."""
+    keep = [W.design_key(d) for d in W.PM_DESIGNS]
+    old = [W.design_key(d) for d in W.PM_DESIGNS_18]
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        st = out / "study"
+        st.mkdir()
+        orig = toy_chunk(0, old)
+        (st / "W0_Q-T1_000.json").write_text(json.dumps(orig))
+        (st / "WB_Q-T1_002.json").write_text(json.dumps(toy_chunk(2, keep)))
+        (st / "W0-psi3_Q-T1_000.json").write_text(json.dumps(toy_chunk(0, keep[:1])))
+        before = {p.name: p.read_bytes() for p in st.iterdir()}
+        assert D.trim_designs(out, log=lambda *a, **k: None) == 1
+        got = json.loads((st / "W0_Q-T1_000.json").read_text())
+        for g, o in zip(got, orig, strict=True):
+            assert list(g["pm"]) == keep and all(g["pm"][k] == o["pm"][k] for k in keep)
+            assert {k: v for k, v in g.items() if k != "pm"} == {k: v for k, v in o.items() if k != "pm"}
+        assert (out / "study_18designs" / "W0_Q-T1_000.json").read_bytes() == before["W0_Q-T1_000.json"]
+        for name in ("WB_Q-T1_002.json", "W0-psi3_Q-T1_000.json"):
+            assert (st / name).read_bytes() == before[name]
+        assert D.trim_designs(out, log=lambda *a, **k: None) == 0
+        assert D.verify_chunk(st / "W0_Q-T1_000.json") == []
+
+
 CHECKS = {f.__name__: f for f in [
     check_world_labels, check_world_specs, check_design_rule, check_design_rule_ties_and_fallback,
     check_router_share_once, check_thin_settings_paired, check_setting_grid, check_burn_from_other_days,
     check_wb_beta_and_impact, check_semi_response_direct, check_semi_flow_unchanged, check_wm_burn,
     check_tick_bin_matches_run_primary, check_m3_short_days, check_tie_bins, check_coin_informed,
     check_long_unit_matches_run_unit, check_astar_local, check_astar_censored, check_pr_uses_local_vertex,
+    check_design_grid, check_lock_refuses_second, check_main_takes_lock, check_verify_chunk,
+    check_trim_keeps_retained,
 ]}
 
 
@@ -574,6 +720,20 @@ BUGS = [
     Bug("a*: censored end treated as interior (P-R decision)", P, "decide_pr",
         "cens = np.zeros(2) if cens is None else np.asarray(cens)", "cens = np.zeros(2)",
         ("check_astar_censored",)),
+    Bug("lock never taken (no flock)", D, "acquire_lock", "fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)", "pass",
+        ("check_lock_refuses_second", "check_main_takes_lock")),
+    Bug("lock taken blocking-free but shared", D, "acquire_lock", "fcntl.LOCK_EX | fcntl.LOCK_NB",
+        "fcntl.LOCK_SH | fcntl.LOCK_NB", ("check_lock_refuses_second", "check_main_takes_lock")),
+    Bug("main does not take the lock", D, "main", "lock = acquire_lock(OUT)", "lock = None",
+        ("check_main_takes_lock",)),
+    Bug("chunk's panels not checked", D, "verify_chunk", 'if r["panel"] != start + j or r["tick_bin"] != tb:',
+        "if False:", ("check_verify_chunk",)),
+    Bug("a bad chunk reported but left in place", D, "check_study",
+        "shutil.move(str(d / name), str(q / name))", "pass", ("check_verify_chunk",)),
+    Bug("trim keeps the first 6 of the old grid", D, "trim_designs", "keep = [W.design_key(d) for d in W.PM_DESIGNS]",
+        "keep = [W.design_key(d) for d in W.PM_DESIGNS_18[:6]]", ("check_trim_keeps_retained",)),
+    Bug("trim does not archive the original", D, "trim_designs", "shutil.copy2(f, arch / f.name)", "pass",
+        ("check_trim_keeps_retained",)),
 ]
 DATA_BUGS = [
     ("WB's P-M labelled no reject", ("WB", "P-M", "no reject")),

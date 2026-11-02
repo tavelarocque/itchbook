@@ -460,10 +460,61 @@ P-R's secondary, the analyse3d2 tables, the diag3d2b tables).
   cannot hold there. WM's P-M is reported as "fails by construction" (`worlds3d2.BY_CONSTRUCTION`), and it is
   not scored. WB remains the P-M power world.
 - `phase3d2.py all` runs W-null (the clean coin-flip version), W0, W0-psi3 and WB, with the tie-aware bins:
-  - design: W-null, W0, WB at all 18 P-M designs;
+  - design: W-null, W0, WB at every P-M design (18 when decided; 6 since the trim of 7.6);
   - power: W0-psi3 at the chosen design;
   - analyse.
 - WM (`phase3d2.py wm`) and thinning (`phase3d2.py thin`) are separate commands, kept for later.
 - With WM out of `all`, P-V has no power world in the study. WM was P-V's power world
   (`worlds3d2.PV_POWER_WORLD`).
 
+### 7.6 The P-M design grid trimmed to 6 designs (decided 1 Nov 2026), and the double run
+
+- **Decision.** The P-M design grid goes from 18 designs to 6: bins {3, 4, 5} x l_max {16, 32}, with
+  L = 8 l_max and min runs per bin fixed at 50 (`worlds3d2.PM_DESIGNS`; the old grid is kept as
+  `PM_DESIGNS_18`). It was taken before any study result was read.
+- **Reason.** Compute cost only. No rejection rate from the finished jobs was read or summarised, before or
+  after the decision.
+- **Unchanged.** Worlds, panel counts, seeds, the four tests, the one Holm family, and the design rule
+  (`worlds3d2.choose_design`: admissible in W-null and W0 in every tick bin, highest mean WB rate, ties to
+  fewer bins then smaller l_max), which now runs over the 6. The min-runs tie-break no longer has anything to
+  break.
+- **The finished jobs are reused, not recomputed.** P-M at one design does not depend on which other
+  designs share the job: every design uses the same draws, and a result is reused only between designs with
+  the same moments, which is exact. So the 6 retained designs' records in an 18-design chunk are what a
+  6-design job gives. `phase3d2.py trim` kept only the 6 in the 130 finished chunks. Each original moved
+  unchanged to `~/CODE/itch-data/phase3d2/study_18designs/`; every other field and every retained record is
+  identical. W0 chunk 058, recomputed alone at the 6 designs, matched the saved chunk in every field but the
+  timings.
+- **Incident: two instances of `phase3d2.py all` ran at once.** They ran from the start of the run
+  (both logged "750 jobs, 750 to run") against the same chunk folder and the same `run.log`, until the run
+  was stopped at 130 of 750 jobs (all Q-T1: W-null chunks 0 to 198, W0 chunks 0 to 58).
+  - Both instances computed the same jobs from the same seeds and wrote them under the same names. So no
+    job has two files, but a job's file may have been written twice, and both writers used the same
+    temporary name.
+  - **Integrity check (`phase3d2.py check`, Measurement).** All 130 chunks loaded and were complete: the
+    right panels in order, every field, a p in [0, 1] for every evaluable test, all 18 designs. No panel was
+    held twice and no temporary file was left. All 735 JSON files under `~/CODE/itch-data/phase3d2/` load.
+    Quarantined: 0 (the folder `quarantine/<time>/` is created only when something moves).
+  - Effect: the two instances only shared the machine, so the jobs ran slower. The results themselves are
+    deterministic in the seeds, and the recomputation below confirms one chunk.
+  - **Guard.** Every `phase3d2.py` step now takes an exclusive, non-blocking flock on
+    `<output>/phase3d2.lock` (`phase3d2.acquire_lock`), held until the process ends; the OS drops it however
+    the process ends, so a crash leaves no stale lock. A second instance on the same output directory exits
+    with the holder's pid and start time.
+- **Timing after the trim (Measurement, 1 Nov 2026).** Two jobs (2 panels each), one after the other, with
+  no other study process running:
+  - W0 Q-T1 chunk 058: 118 s (per panel: generate 3.7 / 2.7 s, range tests 21.6 / 17.3 s, P-M 36.8 / 32.8 s);
+  - W0 Q-T3 chunk 000: 66 s (range tests 6.9 / 6.1 s, P-M 26.1 / 23.5 s).
+
+  Remaining: stage A has 620 jobs (W0 Q-T1 70, WB Q-T1 50, every Q-T2 and Q-T3 job), stage B 150. WB, Q-T2
+  and stage B are scaled from these two jobs with the pilot's and smoke run's ratios; they were not
+  measured here. Total: about 11 worker-hours. That is 3.6 h wall on 3 workers if they scale as in the
+  pilot, and about 7 h if they slow down as much as in the smoke run. Expect 4 to 7 h.
+- **Checks** (`test_3d2`): `check_design_grid` (the 6 designs; the rule and stage A over exactly them),
+  `check_lock_refuses_second` (second acquire refused; free again after release and after the holder's
+  process dies), `check_main_takes_lock` (main refuses, in-process and from a second process),
+  `check_verify_chunk` (truncated chunk, wrong panel, missing design, evaluable test without p, a name that
+  is no job, short chunk and leftover .tmp all caught and quarantined, and only they), and
+  `check_trim_keeps_retained`. Planted bugs: no flock; a shared lock; main not taking the lock; a chunk's
+  panels not checked; a bad chunk left in place; trim keeping the wrong 6; trim not archiving the original.
+  `check_design_rule` and `check_design_rule_ties_and_fallback` now use designs of the 6.

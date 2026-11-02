@@ -4,7 +4,7 @@
 pilot    PILOT_PANELS panels per world of STUDY_WORLDS at the default P-M design, timed per tick bin; prints the projected
          wall time of the study on the given workers
 design   stage A: N_STUDY panels of W-null, W0, WB; per panel and tick bin P-V, P-R, P-F (one run_unit, as
-         run_primary) and P-M at every one of the 18 allowed designs on the SAME draws
+         run_primary) and P-M at every design of worlds3d2.PM_DESIGNS (6 since 1 Nov 2026) on the SAME draws
 power    applies the P-M design rule (analyse3d2.chosen_design, the rule in worlds3d2.choose_design), then
          stage B: N_STUDY panels of W0-psi3 at the chosen design
 wm       N_STUDY panels of WM (the published PAPER2 preset) at the chosen design; not part of all (decided
@@ -16,6 +16,14 @@ analyse  rates before and after the one Holm family (primary3d.combine at the ch
 all      design, power, analyse in order: STUDY_WORLDS only (each step resumes where it stopped); --panels N
          caps every world's panels at N (a smoke run; PHASE3D2_OUT sets the output directory)
 topup    more panels for every world of STUDY_WORLDS (--panels N), then analyse
+check    integrity of every saved study chunk (loads, complete, one file per job, no panel twice); a bad or
+         duplicated file, or a leftover .tmp, moves to quarantine/<time>/ (nothing is deleted)
+trim     keeps only worlds3d2.PM_DESIGNS in chunks saved with the 18-design grid (decided 1 Nov 2026); each
+         original moves unchanged to study_18designs/, nothing is recomputed
+
+Every step takes an exclusive lock on <output>/phase3d2.lock (an flock, dropped by the OS when the process
+ends however it ends). A second instance on the same output directory refuses to start (1 Nov 2026: two
+instances of all once ran together on the same chunks and log).
 
 Jobs are chunks of CHUNK_PANELS panels of one (world, tick bin), saved as JSON under
 ~/CODE/itch-data/phase3d2/{study,thin}/ and skipped when present (resumable). Seeds: panel i of world w and
@@ -28,8 +36,12 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
+import filecmp
 import json
 import os
+import re
+import shutil
 import sys
 import time
 import warnings
@@ -238,6 +250,154 @@ def run_jobs(fn, js, workers: int, done, log=print) -> None:
                 log(f"  {k}/{len(todo)}, {(time.time() - t0) / 60:.1f} min", flush=True)
 
 
+# ---- one instance at a time, integrity of the saved chunks, trimming to the retained designs -------------
+
+LOCK_NAME = "phase3d2.lock"
+
+
+def acquire_lock(out: Path):
+    """An exclusive, non-blocking flock on out/phase3d2.lock, held while the returned file stays open (keep a
+    reference). The OS drops it when the process ends, so a crash or kill leaves no stale lock. A second
+    instance on the same directory exits with the holder's pid and start time."""
+    out.mkdir(parents=True, exist_ok=True)
+    f = open(out / LOCK_NAME, "a+")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        f.seek(0)
+        held = f.read().strip() or "pid unknown"
+        f.close()
+        raise SystemExit(f"another phase3d2 run holds {out / LOCK_NAME} ({held}); not starting") from None
+    f.truncate(0)
+    f.write(f"pid {os.getpid()}, started {time.strftime('%Y-%m-%d %H:%M:%S')}, argv {' '.join(sys.argv[1:])}\n")
+    f.flush()
+    return f
+
+
+CHUNK_RE = re.compile(r"^(?P<world>.+)_(?P<tb>Q-T[123])_(?P<start>\d{3})\.json$")
+REC_KEYS = ("tick_bin", "n_stocks", "Ns", "rho", "evaluability", "tests", "pm", "panel", "seconds")
+
+
+def _p_ok(p) -> bool:
+    return isinstance(p, (int, float)) and 0.0 <= p <= 1.0
+
+
+def verify_chunk(path: Path) -> list[str]:
+    """Problems with one saved study chunk (empty when it is complete): its name is a job of STUDY_WORLDS or
+    LATER_WORLDS, it parses, it holds panels start, start + 1, ... of its tick bin (CHUNK_PANELS of them unless
+    the world ends sooner), every record has every field, every evaluable range test a p in [0, 1], and P-M
+    records for exactly the retained designs, all 18 of the old grid (design worlds, before trim) or one
+    retained design (the other worlds)."""
+    m = CHUNK_RE.match(path.name)
+    if not m or m["world"] not in STUDY_WORLDS + LATER_WORLDS:
+        return ["not a study job name"]
+    world, tb, start = m["world"], m["tb"], int(m["start"])
+    if start % CHUNK_PANELS:
+        return [f"start {start} is not a chunk start"]
+    try:
+        recs = json.loads(path.read_text())
+    except (ValueError, UnicodeDecodeError) as e:
+        return [f"does not parse: {e}"]
+    if not isinstance(recs, list) or not recs:
+        return ["not a non-empty list of records"]
+    probs = []
+    # a chunk past N_STUDY (topup) may end at any panel count
+    want = min(CHUNK_PANELS, N_STUDY[world] - start) if start < N_STUDY[world] else min(len(recs), CHUNK_PANELS)
+    if len(recs) != want:
+        probs.append(f"{len(recs)} records, expected {want}")
+    retained = {W.design_key(d) for d in W.PM_DESIGNS}
+    old = {W.design_key(d) for d in W.PM_DESIGNS_18}
+    for j, r in enumerate(recs):
+        if not isinstance(r, dict) or any(k not in r for k in REC_KEYS):
+            probs.append(f"record {j}: missing fields")
+            continue
+        if r["panel"] != start + j or r["tick_bin"] != tb:
+            probs.append(f"record {j}: panel {r['panel']} {r['tick_bin']}, expected {start + j} {tb}")
+        if len(r["Ns"]) != r["n_stocks"] or len(r["rho"]) != r["n_stocks"]:
+            probs.append(f"record {j}: Ns or rho not n_stocks long")
+        for t in ("P-V", "P-R", "P-F"):
+            if r["evaluability"].get(t, {}).get("evaluable") and not _p_ok(r["tests"].get(t, {}).get("p")):
+                probs.append(f"record {j}: {t} evaluable without a p in [0, 1]")
+        keys = set(r["pm"])
+        ok = keys in (retained, old) if world in DESIGN_WORLDS else (len(keys) == 1 and keys <= retained)
+        if not ok:
+            probs.append(f"record {j}: P-M designs {sorted(keys)}")
+        for k, v in r["pm"].items():
+            if "evaluable" not in v or (v["evaluable"] and (not _p_ok(v.get("p")) or "conditions" not in v)):
+                probs.append(f"record {j}: P-M {k} incomplete")
+    return probs
+
+
+def check_study(out: Path = OUT, log=print) -> dict:
+    """Verifies every file in out/study and moves each bad one, each duplicate (a panel already held by an
+    earlier file of the same world and tick bin) and each leftover temporary file to
+    out/quarantine/<time>/study/, with the reason in that folder's reasons.json. Returns the counts."""
+    d = out / "study"
+    files = sorted(d.iterdir()) if d.exists() else []
+    bad: dict[str, list[str]] = {}
+    seen: dict[tuple, str] = {}
+    n_ok = 0
+    for f in files:
+        if f.suffix != ".json":
+            bad[f.name] = ["leftover temporary or foreign file"]
+            continue
+        probs = verify_chunk(f)
+        if not probs:
+            m = CHUNK_RE.match(f.name)
+            for r in json.loads(f.read_text()):
+                key = (m["world"], m["tb"], r["panel"])
+                if key in seen:
+                    probs.append(f"panel {r['panel']} already in {seen[key]} (duplicate)")
+                seen.setdefault(key, f.name)
+        if probs:
+            bad[f.name] = probs
+        else:
+            n_ok += 1
+    q = None
+    if bad:
+        q = out / "quarantine" / time.strftime("%Y%m%d-%H%M%S") / "study"
+        q.mkdir(parents=True)
+        for name in bad:
+            shutil.move(str(d / name), str(q / name))
+        (q / "reasons.json").write_text(json.dumps(bad, indent=1))
+    res = {"files": len(files), "complete": n_ok, "quarantined": len(bad),
+           "duplicates": sum(any("duplicate" in p for p in v) for v in bad.values()),
+           "quarantine": str(q) if q else None, "reasons": bad}
+    log(f"check: {res['files']} files, {res['complete']} complete, {res['quarantined']} quarantined "
+        f"({res['duplicates']} duplicates){', in ' + res['quarantine'] if q else ''}", flush=True)
+    return res
+
+
+def trim_designs(out: Path = OUT, log=print) -> int:
+    """Keeps only worlds3d2.PM_DESIGNS in the design worlds' chunks saved with the 18-design grid (decided
+    1 Nov 2026). P-M at one design never depends on the other designs in the job (same draws; reuse only
+    between designs with the same moments, which is exact), so the retained records are what a 6-design job
+    gives. The original moves unchanged to out/study_18designs/ first; nothing is recomputed."""
+    keep = [W.design_key(d) for d in W.PM_DESIGNS]
+    arch = out / "study_18designs"
+    n = 0
+    for f in sorted((out / "study").glob("*.json")):
+        m = CHUNK_RE.match(f.name)
+        if not m or m["world"] not in DESIGN_WORLDS:
+            continue
+        recs = json.loads(f.read_text())
+        if all(set(r["pm"]) == set(keep) for r in recs):
+            continue
+        for r in recs:
+            r["pm"] = {k: r["pm"][k] for k in keep}
+        arch.mkdir(parents=True, exist_ok=True)
+        if not (arch / f.name).exists():
+            shutil.copy2(f, arch / f.name)
+        elif not filecmp.cmp(f, arch / f.name, shallow=False):  # a rerun after a stop between copy and rename
+            raise SystemExit(f"{arch / f.name} differs from {f}; not overwriting an archived original")
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(recs))
+        tmp.rename(f)
+        n += 1
+    log(f"trim: {n} chunks kept to {len(keep)} designs; originals in {arch}", flush=True)
+    return n
+
+
 # ---- pilot ------------------------------------------------------------------------------------------------
 
 
@@ -251,7 +411,7 @@ def pilot_job(args) -> dict:
     tm: dict = {}
     r = run_tick_bin(flows, tb, rng, [DEFAULT_PM], log_time=tm)
     t1 = time.time()
-    # one design's P-M alone, to project the 18-design cost
+    # one design's P-M alone, to project the cost of every design
     return {"world": world, "tick_bin": tb, "panel": i, "generate": gen_s, **tm, "total": t1 - t0,
             "pm_evaluable": r["pm"][W.design_key(DEFAULT_PM)]["evaluable"], "result": r}
 
@@ -277,8 +437,8 @@ def pilot(workers: int, n: int = PILOT_PANELS, log=print) -> None:
                          f"{m['pm']:.1f} | {m['total']:.1f} |")
             extra = len(W.PM_DESIGNS) - 1 if w in DESIGN_WORLDS else 0
             proj += (m["total"] + extra * m["pm"]) * N_STUDY[w]
-    lines.append(f"\nProjected study (all: 18 designs in {', '.join(DESIGN_WORLDS)}, the chosen one in "
-                 f"{', '.join(POWER_WORLDS)}, N_STUDY panels): {proj / 3600:.1f} worker-hours, "
+    lines.append(f"\nProjected study (all: {len(W.PM_DESIGNS)} designs in {', '.join(DESIGN_WORLDS)}, the chosen "
+                 f"one in {', '.join(POWER_WORLDS)}, N_STUDY panels): {proj / 3600:.1f} worker-hours, "
                  f"{proj / 3600 / workers:.1f} h wall on {workers} workers (P-M cost per design taken as the "
                  f"default design's; WM and thinning not included).")
     (OUT / "report" / "pilot.md").write_text("\n".join(lines) + "\n")
@@ -311,15 +471,21 @@ def thin(workers: int, n: int) -> None:
     run_jobs(thin_job, [j for j in js if j[0] != "Q-T1"], workers, done)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("step", choices=["pilot", "all", "design", "power", "wm", "thin", "topup", "analyse"])
+    ap.add_argument("step", choices=["pilot", "all", "design", "power", "wm", "thin", "topup", "analyse", "check",
+                                     "trim"])
     ap.add_argument("--panels", type=int, default=None)
     ap.add_argument("--workers", type=int, default=min(3, os.cpu_count() or 1))
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.workers > 3:
         raise SystemExit("at most 3 workers")
+    lock = acquire_lock(OUT)  # noqa: F841 (held until the process ends)
     t0 = time.time()
+    if a.step == "check":
+        check_study(OUT)
+    if a.step == "trim":
+        trim_designs(OUT)
     n_to = dict(N_STUDY) if a.panels is None else {w: min(a.panels, N_STUDY[w]) for w in W.WORLDS}
     if a.step == "topup":
         if a.panels is None:

@@ -121,6 +121,9 @@ panel are separate draws of stocks; the Holm family of panel i joins the three t
 
 ## 4. The P-M design rule (stated before any study result)
 
+**Trimmed on 1 Nov 2026 to 6 designs (min runs per bin fixed at 50), for compute cost only; see
+`docs/phase3d_tests.md` 7.6.** The rule below is unchanged and now runs over those 6.
+
 Grid: bins {3, 4, 5} x l_max {16, 32} x min runs per bin {20, 50, 100}, with **L = 8 l_max** (the smallest L
 the pre-registration allows; Choice). The rule is coded in `worlds3d2.choose_design` and was committed to
 before the study:

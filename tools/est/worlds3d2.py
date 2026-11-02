@@ -387,8 +387,12 @@ def tick_bin_flows(world: str, tb: str, rng: np.random.Generator) -> dict:
 
 # ---- P-M design rule (stated before the study's results were seen) ----------------------------------------
 
-PM_DESIGNS = tuple(P.PMParams(nb, lm, C.PM_L_FACTOR * lm, mr) for nb in C.PM_BINS_ALLOWED
-                   for lm in C.PM_LMAX_ALLOWED for mr in (20, 50, 100))
+PM_DESIGNS_18 = tuple(P.PMParams(nb, lm, C.PM_L_FACTOR * lm, mr) for nb in C.PM_BINS_ALLOWED
+                      for lm in C.PM_LMAX_ALLOWED for mr in (20, 50, 100))  # the grid until 1 Nov 2026
+# Decided 1 Nov 2026, before any study result was read, for compute cost only: min runs per bin fixed at
+# 50, so 6 designs (bins x l_max). The design rule below runs over these 6.
+PM_MIN_RUNS = 50
+PM_DESIGNS = tuple(d for d in PM_DESIGNS_18 if d.min_runs_per_bin == PM_MIN_RUNS)
 SIZE_LEVEL = 0.05
 
 
