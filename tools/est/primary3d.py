@@ -71,7 +71,8 @@ PM_L0S = np.logspace(-1, 2.5, 71)  # propagator.fit_power's grid
 M2_KBELOW = (2, 3, 4, 5)  # CHOICE: a_c leaves 2..5 grid points below it (a_c in (0.25, 0.5], ..., or > 1)
 SNAP = 1e-12  # CHOICE: a slope below this in size is 0 (an exactly flat input gives +-3e-17 from the OLS weights)
 # Decided 1 Nov 2026: psi-hat is not corrected; every report of it carries this (docs/phase3d_tests.md 7.4)
-PSI_NOTE = "psi-hat reads +0.02 to +0.05 high without sign memory (3d-2b, W0-shuf at psi = 0.5); not corrected"
+PSI_NOTE = ("psi-hat reads 0.63 to 0.70 at psi = 0.5 and 0.35 to 0.41 at psi = 0.3 on real flow (Phase 3d-2); "
+            "not corrected")
 
 
 # ---- input ------------------------------------------------------------------------------------------------

@@ -455,8 +455,10 @@ Made from the pilot's bin occupancy (docs/phase3d2a_report.md), before any power
 ### 7.4 psi-hat: no correction (decided 1 Nov 2026)
 
 psi-hat keeps its definition. In 3d-2b's W0-shuf (psi = 0.5, no sign memory) it read 0.553, 0.532 and 0.521
-in Q-T1, Q-T2 and Q-T3, so +0.02 to +0.05 high. Every report of psi-hat carries this (`primary3d.PSI_NOTE`:
-P-R's secondary, the analyse3d2 tables, the diag3d2b tables).
+in Q-T1, Q-T2 and Q-T3, so +0.02 to +0.05 high. Every report of psi-hat carries a note (`primary3d.PSI_NOTE`:
+P-R's secondary, the analyse3d2 tables, the diag3d2b tables). At the freeze (2 Nov 2026) the note was updated
+to the real-flow figures of the Phase 3d-2 study (`docs/phase3d2_report.md` section 6):
+"psi-hat reads 0.63 to 0.70 at psi = 0.5 and 0.35 to 0.41 at psi = 0.3 on real flow (Phase 3d-2); not corrected".
 
 ### 7.5 WM and the scope of the 3d-2 study (decided 1 Nov 2026)
 

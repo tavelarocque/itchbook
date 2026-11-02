@@ -36,7 +36,8 @@ written, 11-test family).
 5. **psi-hat is far too high on real flow (Measurement).**
    - At psi = 0.5 (W0) it reads 0.63 to 0.70. At psi = 0.3 (W0-psi3) it reads 0.35 to 0.41.
    - Without sign memory (3d-2b's W0-shuf) the bias was only +0.02 to +0.05.
-   - `primary3d.PSI_NOTE` states only that smaller figure. Section 6.
+   - `primary3d.PSI_NOTE` stated only that smaller figure. At the freeze (2 Nov 2026) it was updated to
+     the real-flow figures. Section 6.
 6. **Exposure: P-V uses signs and sizes only.** So its statistics in the semi-synthetic worlds were
    computed on resampled real exploration flow. They are, in effect, the exploration sample's own P-V
    statistics, and they have now been seen. Section 7.
@@ -214,8 +215,8 @@ median q, averaged over stocks. Mean over panels (SD over panels):
   needs that term to depend on q in the real flow, that is, sizes related to sign memory. That mechanism was
   not measured here.
 - psi-hat is reported, never tested (decision 7.4: no correction). `primary3d.PSI_NOTE`, printed beside
-  every psi-hat, gives only the shuffled-sign figure (+0.02 to +0.05). On real flow it understates the bias
-  (open item 1).
+  every psi-hat, gave only the shuffled-sign figure (+0.02 to +0.05). Since the freeze (2 Nov 2026) it reads
+  "psi-hat reads 0.63 to 0.70 at psi = 0.5 and 0.35 to 0.41 at psi = 0.3 on real flow (Phase 3d-2); not corrected" (open item 1, closed).
 - For comparison, a*(T1) in W0 is 0.58 / 0.57 / 0.60 (Q-T1 / Q-T2 / Q-T3), +0.07 to +0.10. So P-R's a* is
   much less affected than psi-hat.
 
@@ -267,8 +268,8 @@ New for the Q-T2 decision:
 
 ## 9. Open (none acted on)
 
-1. **`PSI_NOTE` understates psi-hat's bias on real flow** (+0.13 to +0.20 at psi = 0.5, section 6). The
-   note could cite both figures. psi-hat stays uncorrected either way.
+1. **Closed at the freeze (2 Nov 2026).** `PSI_NOTE` understated psi-hat's bias on real flow (+0.13 to +0.20
+   at psi = 0.5, section 6). It now gives the real-flow figures; psi-hat stays uncorrected.
 2. **P-F's rejections without a label** (section 4). On real signs with a transient kernel, P-F rejects in
    Q-T3 in most panels. How to read a real-data P-F rejection needs a statement before confirmation.
 3. **P-V has no power world**, and its exploration-flow outcome has now been seen (section 7).
