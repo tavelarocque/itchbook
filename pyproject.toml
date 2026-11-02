@@ -22,6 +22,66 @@ pythonpath = ["tools/itchref", "tools/tape", "tools/est"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+# Excluded from ruff check and ruff format. These files are kept byte-identical as committed
+# and are never reformatted or lint-fixed.
+extend-exclude = [
+    # Frozen at prereg-freeze-v1: byte-identical to the registered code.
+    "tools/est/analyse3d2.py",
+    "tools/est/calib3.py",
+    "tools/est/clip3b.py",
+    "tools/est/collapse.py",
+    "tools/est/conftest.py",
+    "tools/est/describe.py",
+    "tools/est/diag3d2b.py",
+    "tools/est/explore.py",
+    "tools/est/gen3.py",
+    "tools/est/inference.py",
+    "tools/est/longmem.py",
+    "tools/est/mbmodel.py",
+    "tools/est/moments.py",
+    "tools/est/panel3c.py",
+    "tools/est/phase3b.py",
+    "tools/est/phase3c.py",
+    "tools/est/phase3c3.py",
+    "tools/est/phase3c4.py",
+    "tools/est/phase3d2.py",
+    "tools/est/pooled.py",
+    "tools/est/prereg3d.py",
+    "tools/est/primary3d.py",
+    "tools/est/propagator.py",
+    "tools/est/signs3b.py",
+    "tools/est/surrogates.py",
+    "tools/est/synth.py",
+    "tools/est/test_3c3.py",
+    "tools/est/test_3c4.py",
+    "tools/est/test_3d1.py",
+    "tools/est/test_3d2.py",
+    "tools/est/test_collapse.py",
+    "tools/est/test_describe.py",
+    "tools/est/test_est.py",
+    "tools/est/test_explore.py",
+    "tools/est/test_gen3.py",
+    "tools/est/test_inference.py",
+    "tools/est/test_mbmodel.py",
+    "tools/est/test_panel3c.py",
+    "tools/est/test_phase3b.py",
+    "tools/est/test_pooled.py",
+    "tools/est/test_pooled2.py",
+    "tools/est/test_surrogates.py",
+    "tools/est/test_thinning.py",
+    "tools/est/thinning.py",
+    "tools/est/truth3.py",
+    "tools/est/worlds3d2.py",
+    "tools/itchref/tape_crosscheck.py",
+    "tools/itchref/taperef.py",
+    "tools/tape/runs.py",
+    "tools/tape/tape.py",
+    "tools/tape/test_runs.py",
+    # Added after the freeze (the Phase 4 run and its reproduction check), kept as committed.
+    "tools/est/phase4.py",
+    "tools/est/phase4_repro.py",
+    "tools/est/test_phase4.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
