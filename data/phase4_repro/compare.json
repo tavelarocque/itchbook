@@ -1,0 +1,108 @@
+{
+ "identical": true,
+ "fields_compared": 2823,
+ "mismatches": 0,
+ "fields_by_section": {
+  "result": 1790,
+  "run": 7,
+  "inputs_sha256": 8,
+  "inputs_cells": 921,
+  "inputs_plan_counts": 9,
+  "holm_recomputed": 48,
+  "holm_recomputed_vs_reproduced": 40
+ },
+ "git_head": "915cbd073386701eb383e96128a958c383f80ea7",
+ "git_status": "?? tools/est/phase4_repro.py",
+ "phase4_repro_py_sha256": "2ee4f35cc2ea0eb4c078a8d3e0385083255010ca5a6ac1109e645ca02975bf28",
+ "seed": 20261102,
+ "pm": {
+  "n_bins": 3,
+  "l_max": 16,
+  "L": 128,
+  "min_runs_per_bin": 50
+ },
+ "n_boot": 200,
+ "n_sur": 4,
+ "python": "3.13.16",
+ "numpy": "2.5.4",
+ "load_s": 6.8683319091796875,
+ "run_primary_s": 48.29996418952942,
+ "wall_s": 55.1928071975708,
+ "stored_wall_s": 39.8338668346405,
+ "stored_git_head": "d126088fba041824950d7ffae4aa75a7a98b2703",
+ "holm_recomputed": [
+  {
+   "pair": "P-F|Q-T1",
+   "p": 0.0001428966406721203,
+   "rank": 1,
+   "threshold": 0.00625,
+   "p_adj": 0.0011431731253769624,
+   "rejected": true,
+   "passed": true
+  },
+  {
+   "pair": "P-F|Q-T3",
+   "p": 0.004780873334061808,
+   "rank": 2,
+   "threshold": 0.0071428571428571435,
+   "p_adj": 0.033466113338432656,
+   "rejected": true,
+   "passed": true
+  },
+  {
+   "pair": "P-R|Q-T3",
+   "p": 0.445,
+   "rank": 3,
+   "threshold": 0.008333333333333333,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  },
+  {
+   "pair": "P-V|Q-T3",
+   "p": 0.97,
+   "rank": 4,
+   "threshold": 0.01,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  },
+  {
+   "pair": "P-V|Q-T1",
+   "p": 1.0,
+   "rank": 5,
+   "threshold": 0.0125,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  },
+  {
+   "pair": "P-R|Q-T1",
+   "p": 1.0,
+   "rank": 6,
+   "threshold": 0.016666666666666666,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  },
+  {
+   "pair": "P-M|Q-T1",
+   "p": 1.0,
+   "rank": 7,
+   "threshold": 0.025,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  },
+  {
+   "pair": "P-M|Q-T3",
+   "p": 1.0,
+   "rank": 8,
+   "threshold": 0.05,
+   "p_adj": 1.0,
+   "rejected": false,
+   "passed": false
+  }
+ ],
+ "mismatch_list": []
+}
